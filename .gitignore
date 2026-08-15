@@ -1,0 +1,13 @@
+# 개인 데이터 — 심볼릭 링크이며 실제로는 리포지토리 밖(Application Support)을 가리킴
+/data
+
+# 빌드 산출물 — tools/build_app.py, tools/build_dist.py 로 다시 만들 수 있음
+/시후의 하루 계획표.app
+/dist
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

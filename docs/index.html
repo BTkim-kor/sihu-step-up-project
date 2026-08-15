@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시후의 하루 계획표</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>시후의 하루 계획표</span>
+  </div>
+
+  <div class="datenav">
+    <button class="icon" id="prevDay" title="어제">‹</button>
+    <input type="date" id="dateInput">
+    <span class="dow" id="dowLabel"></span>
+    <button class="icon" id="nextDay" title="내일">›</button>
+    <button class="ghost" id="todayBtn">오늘</button>
+  </div>
+
+  <div class="tools">
+    <span class="savestate" id="saveState">불러오는 중…</span>
+    <button id="saveBtn" class="primary">저장</button>
+    <button class="ghost" id="undoBtn">↺ 되돌리기</button>
+    <button class="ghost" id="weekBtn">주간 요약</button>
+
+    <div class="share-wrap">
+      <button class="ghost" id="shareBtn">🔗 공유</button>
+      <div class="share-pop" id="sharePop" hidden>
+        <div class="share-t">가족 공유 링크</div>
+        <p class="share-d">이 링크를 열면 같은 기록을 함께 보고 씁니다.</p>
+        <div class="share-row">
+          <input type="text" id="shareLink" readonly>
+          <button class="sm primary" id="shareCopy">복사</button>
+        </div>
+        <div class="share-t mt">다른 가족 코드로 전환</div>
+        <p class="share-d">받은 코드나 링크를 붙여넣으면 그 가족 기록으로 바뀝니다.</p>
+        <div class="share-row">
+          <input type="text" id="joinInput" placeholder="코드 또는 링크">
+          <button class="sm ghost" id="joinBtn">전환</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="onboard" id="onboard" hidden>
+  <div class="onboard-card">
+    <div class="onboard-mark"></div>
+    <h1>가족 공간이 만들어졌습니다</h1>
+    <p>아래 링크를 시후(또는 부모님)에게 보내주세요.<br>
+       그 링크를 열면 같은 기록을 함께 보고 쓸 수 있습니다.</p>
+    <div class="share-row">
+      <input type="text" id="onboardLink" readonly>
+      <button class="primary" id="onboardCopy">링크 복사</button>
+    </div>
+    <button class="ghost" id="onboardStart">시작하기</button>
+  </div>
+</div>
+
+<main class="grid">
+
+  <section class="card" data-side="plan">
+    <div class="card-head">
+      <h2><span class="dot plan"></span>계획</h2>
+      <div class="head-actions">
+        <span class="chip-stat" id="planStat">—</span>
+        <button class="ghost sm" data-clear="plan">비우기</button>
+      </div>
+    </div>
+
+    <div class="wheel-wrap">
+      <svg class="wheel" id="wheelPlan" viewBox="0 0 360 360" role="img" aria-label="계획 원그래프"></svg>
+    </div>
+
+    <div class="hint">활동을 고르고 원 위를 <b>드래그</b>하세요</div>
+
+    <div class="palette" id="palettePlan"></div>
+
+    <div class="blocks" id="blocksPlan"></div>
+  </section>
+
+  <section class="card" data-side="actual">
+    <div class="card-head">
+      <h2><span class="dot actual"></span>실행</h2>
+      <div class="head-actions">
+        <span class="chip-stat" id="actualStat">—</span>
+        <button class="ghost sm" id="copyPlanBtn" title="계획을 실행 쪽으로 통째로 복사">⧉ 계획 복사</button>
+        <button class="ghost sm" data-clear="actual">비우기</button>
+      </div>
+    </div>
+
+    <div class="wheel-wrap">
+      <svg class="wheel" id="wheelActual" viewBox="0 0 360 360" role="img" aria-label="실행 원그래프"></svg>
+    </div>
+
+    <div class="hint">안쪽 옅은 색이 <b>계획</b>, 바깥 진한 띠가 <b>실행</b>입니다</div>
+
+    <div class="palette" id="paletteActual"></div>
+
+    <div class="quickrow">
+      <button class="ghost sm" id="nowBtn">⏱ 지금까지 <b id="nowActName">—</b> 함</button>
+    </div>
+
+    <div class="blocks" id="blocksActual"></div>
+  </section>
+
+</main>
+
+<section class="card analysis">
+  <div class="card-head">
+    <h2><span class="dot ana"></span>계획 vs 실행 분석</h2>
+    <div class="head-actions"><span class="chip-stat" id="daysStat"></span></div>
+  </div>
+
+  <div class="ana-grid">
+    <div class="scorecol">
+      <div class="score">
+        <div class="score-ring" id="scoreRing"><span id="scoreNum">–</span></div>
+        <div class="score-label">시간 일치율</div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+    </div>
+
+    <div class="barcol">
+      <div class="sub">활동별 계획 / 실제</div>
+      <div class="bars" id="bars"></div>
+    </div>
+
+    <div class="notecol">
+      <div class="sub">가장 많이 어긋난 시간대</div>
+      <ul class="gaps" id="gaps"></ul>
+      <div class="sub mt">개선 가이드</div>
+      <ul class="tips" id="tips"></ul>
+      <div class="sub mt">한 줄 회고</div>
+      <textarea id="memo" rows="3" placeholder="오늘 하루 어땠나요?"></textarea>
+    </div>
+  </div>
+</section>
+
+<div class="week" id="weekView" hidden>
+  <header class="week-top">
+    <div class="brand"><span class="brand-mark"></span><span>주간 요약</span></div>
+    <div class="datenav">
+      <button class="icon" id="weekPrev" title="이전 주">‹</button>
+      <span class="week-label" id="weekLabel"></span>
+      <button class="icon" id="weekNext" title="다음 주">›</button>
+      <button class="ghost" id="weekThis">이번 주</button>
+    </div>
+    <div class="tools">
+      <button class="ghost" id="weekClose">✕ 닫기</button>
+    </div>
+  </header>
+
+  <div class="week-body">
+    <div class="wkpis" id="wkKpis"></div>
+
+    <section class="card">
+      <div class="card-head"><h2><span class="dot plan"></span>요일별 계획 · 실행</h2>
+        <div class="head-actions"><span class="chip-stat">안쪽 계획 · 바깥 실행 · 클릭하면 그 날로 이동</span></div>
+      </div>
+      <div class="minis" id="wkMinis"></div>
+    </section>
+
+    <div class="wgrid">
+      <section class="card">
+        <div class="card-head"><h2><span class="dot actual"></span>요일별 일치율</h2></div>
+        <div class="daybars" id="wkMatch"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2><span class="dot ana"></span>활동별 주간 합계</h2>
+          <div class="head-actions"><span class="chip-stat">위 계획 · 아래 실제</span></div>
+        </div>
+        <div class="bars" id="wkBars"></div>
+      </section>
+    </div>
+
+    <div class="wgrid">
+      <section class="card">
+        <div class="card-head"><h2><span class="dot ana"></span>시간대별 이탈 빈도</h2>
+          <div class="head-actions"><span class="chip-stat">계획과 달랐던 날 수</span></div>
+        </div>
+        <div class="hourchart" id="wkHours"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2><span class="dot plan"></span>주간 가이드</h2></div>
+        <ul class="tips" id="wkTips"></ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
