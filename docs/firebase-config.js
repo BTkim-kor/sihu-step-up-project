@@ -9,10 +9,10 @@
 // 설정 방법은 저장소의 docs/README.md 를 참고하세요.
 
 const firebaseConfig = {
-  apiKey: "여기에-API-키를-붙여넣으세요",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx",
+  apiKey: "AIzaSyD_KMUn5vre1r0xFpxwea47NHfMLn7yolg",
+  authDomain: "step-up-pjt.firebaseapp.com",
+  projectId: "step-up-pjt",
+  storageBucket: "step-up-pjt.firebasestorage.app",
+  messagingSenderId: "84491475542",
+  appId: "1:84491475542:web:1d0b822576870b8680b9f7",
 };
