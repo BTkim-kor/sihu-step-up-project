@@ -899,19 +899,32 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 
 .sched-table-wrap { overflow: auto; max-height: 78vh; }
 
-/* 요일 칸은 "1교시" 정도만 들어가면 되므로 넉넉히 늘리지 않는다.
-   colgroup + table-layout:fixed 로 폭을 고정해, 칸을 묶어도 흔들리지 않게 한다. */
-.sched-week { max-width: 1000px; }
+/* 이번 주(왼쪽)와 다음 주(오른쪽)를 나란히. 좁아지면 자연스럽게 위아래로 쌓인다. */
+.sched-pair {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1240px) {
+  .sched-pair { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 요일 칸은 "1교시" 정도만 들어가면 되므로 좁게 잡는다. colgroup +
+   table-layout:fixed 로 폭을 고정해, 칸을 묶어도 흔들리지 않게 한다. */
+.sched-week { width: fit-content; max-width: 100%; }
 
 .sched-table {
-  width: 100%;
-  min-width: 600px;
+  width: auto;
+  /* 좁은 화면에서 칸이 짓눌리는 대신 표가 가로로 스크롤되게 한다(88 + 7×66) */
+  min-width: 550px;
   table-layout: fixed;
   border-collapse: collapse;
   background: var(--card);
   font-size: 12px;
 }
 .sched-table col.sc-c-time { width: 88px; } /* "10:00~10:30" 이 안 잘리는 최소폭 */
+.sched-table col:not(.sc-c-time) { width: 66px; }
 /* 격자는 얇은 안쪽선만. 바깥 테두리는 카드(.sched-week)가 이미 갖고 있다. */
 .sched-table th, .sched-table td {
   border-right: 1px solid var(--line);
@@ -973,12 +986,13 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--ink);
   text-align: center;
-  padding: 0 3px;
+  padding: 0 2px;
   border-radius: 6px;
+  text-overflow: ellipsis;   /* 칸이 좁아 잘릴 때 — 전체는 title 로 뜬다 */
 }
 /* 빈 칸은 눌러야 할 곳이라는 걸 은근히 알려준다 */
 .sched-table td:not(.sc-filled) > input:hover { background: var(--card-soft); }
@@ -1041,16 +1055,17 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 /* 같은 내용이 이어지는 구간을 세로(행)·가로(요일)로 묶어 한 칸으로 보여준다.
    읽기 전용이라 입력칸이 없고, 전체적으로 한 단계 작게 그린다. */
 
-.sched-week.is-sum { max-width: 900px; margin-bottom: 22px; }
+.sched-week.is-sum { margin-bottom: 22px; }
 .sched-week.is-sum .sched-week-head { padding: 9px 14px; font-size: 12.5px; }
-.sched-week.is-sum .sched-table { min-width: 520px; }
 .sched-sum col.sc-c-time { width: 86px; }
 
 .sched-sum td {
-  padding: 6px 7px;
-  font-size: 11px;
+  padding: 6px 4px;
+  font-size: 10.5px;
   color: var(--ink-3);
-  line-height: 1.35;
+  line-height: 1.3;
+  white-space: normal;     /* 좁은 칸에서는 두 줄로 접힌다 */
+  word-break: keep-all;    /* 한글은 낱말 단위로 끊는다 */
 }
 .sched-sum td.sc-filled { font-weight: 600; }
 .sched-sum .sc-time { font-size: 10px; font-weight: 600; }

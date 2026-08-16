@@ -1332,8 +1332,10 @@ function schedEditHtml(w) {
         btn = `<button class="sc-act sc-join" title="옆에 같은 내용인 칸과 다시 합치기"` +
               ` data-week="${esc(w.weekStart)}" data-r="${s.r}" data-c="${s.c}">⇼</button>`;
       }
+      // 칸이 좁아 글자가 잘릴 수 있어서, 마우스를 올리면 전체가 보이게 해 둔다
       return `<td${span}${cls ? ` class="${cls}"` : ''}${hue}${pos}>` +
         `<input type="text" maxlength="20" data-week="${esc(w.weekStart)}"` +
+        `${s.v ? ` title="${esc(s.v)}"` : ''}` +
         ` data-keys="${esc(s.keys.join(','))}" value="${esc(s.v)}">${btn}</td>`;
     }).join('');
     return `<tr><td class="sc-time"><input type="text" class="sc-time-in" maxlength="13"` +
@@ -1386,26 +1388,40 @@ function scheduleWeekBadge(weekStartStr) {
   return diffWeeks > 0 ? `${diffWeeks}주 후` : `${-diffWeeks}주 전`;
 }
 
+function scheduleWeekCardHtml(w) {
+  const end = shiftDate(w.weekStart, 6);
+  const [sy, sm, sd] = w.weekStart.split('-').map(Number);
+  const [, em, ed] = end.split('-').map(Number);
+  // 지난 주는 참고용이라 요약판으로 접어 두고, 필요하면 펼쳐서 고칠 수 있다.
+  const past = isPastWeek(w.weekStart);
+  const summary = past && !scheduleExpanded.has(w.weekStart);
+  return `<section class="sched-week${summary ? ' is-sum' : ''}">
+    <div class="sched-week-head">
+      <span class="sc-wk">W${isoWeekNo(w.weekStart)}</span>
+      <span>${sy}. ${sm}. ${sd}. – ${em}. ${ed}.</span>
+      <span class="sub">${scheduleWeekBadge(w.weekStart)}</span>
+      ${past ? `<button class="ghost sm sc-toggle" data-week="${esc(w.weekStart)}">${summary ? '펼쳐서 편집' : '요약 보기'}</button>` : ''}
+      <button class="ghost sm sc-del" data-week="${esc(w.weekStart)}" title="이 주를 통째로 지우기">삭제</button>
+    </div>
+    ${summary ? schedSummaryHtml(w) : schedEditHtml(w)}
+  </section>`;
+}
+
 function renderScheduleWeeks() {
   const el = $('scheduleWeeksList');
-  el.innerHTML = schedule.weeks.map((w) => {
-    const end = shiftDate(w.weekStart, 6);
-    const [sy, sm, sd] = w.weekStart.split('-').map(Number);
-    const [, em, ed] = end.split('-').map(Number);
-    // 지난 주는 참고용이라 요약판으로 접어 두고, 필요하면 펼쳐서 고칠 수 있다.
-    const past = isPastWeek(w.weekStart);
-    const summary = past && !scheduleExpanded.has(w.weekStart);
-    return `<section class="sched-week${summary ? ' is-sum' : ''}">
-      <div class="sched-week-head">
-        <span class="sc-wk">W${isoWeekNo(w.weekStart)}</span>
-        <span>${sy}. ${sm}. ${sd}. – ${em}. ${ed}.</span>
-        <span class="sub">${scheduleWeekBadge(w.weekStart)}</span>
-        ${past ? `<button class="ghost sm sc-toggle" data-week="${esc(w.weekStart)}">${summary ? '펼쳐서 편집' : '요약 보기'}</button>` : ''}
-        <button class="ghost sm sc-del" data-week="${esc(w.weekStart)}" title="이 주를 통째로 지우기">삭제</button>
-      </div>
-      ${summary ? schedSummaryHtml(w) : schedEditHtml(w)}
-    </section>`;
-  }).join('');
+
+  // 실제로 계획을 세우는 건 이번 주와 다음 주뿐이라, 그 둘만 위에 나란히
+  // (왼쪽 이번 주 · 오른쪽 다음 주) 놓고 나머지는 아래로 내린다.
+  const thisWk = weekStart(todayStr());
+  const nextWk = shiftDate(thisWk, 7);
+  const pair = schedule.weeks
+    .filter((w) => w.weekStart === thisWk || w.weekStart === nextWk)
+    .sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1));
+  const rest = schedule.weeks.filter((w) => w.weekStart !== thisWk && w.weekStart !== nextWk);
+
+  el.innerHTML =
+    (pair.length ? `<div class="sched-pair">${pair.map(scheduleWeekCardHtml).join('')}</div>` : '') +
+    rest.map(scheduleWeekCardHtml).join('');
 
   el.querySelectorAll('.sc-toggle').forEach((btn) => {
     btn.onclick = () => {
