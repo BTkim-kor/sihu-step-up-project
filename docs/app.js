@@ -6,18 +6,28 @@ const DAY = 1440;
 const SLOTS = DAY / SNAP;   // 144
 const ERASER = '__erase';
 
-// 원 그래프 좌표계 (viewBox 400x400 — 바깥 여백은 콜아웃 라벨용으로 둔다)
-const CX = 200, CY = 200;
-const R_OUT = 142;   // 파이 바깥 반지름
-const R_HOLE = 58;   // 가운데 라벨 원
+// 원 그래프 좌표계. 콜아웃 이름표는 원 좌우로 꺾여 나가므로 **가로만** 넓게
+// 잡는다(세로는 시간 눈금까지만 있으면 된다). 그만큼 원 자체를 키울 수 있다.
+const VB_W = 480, VB_H = 400;
+const CX = VB_W / 2, CY = VB_H / 2;
+const R_OUT = 158;   // 파이 바깥 반지름
+const R_HOLE = 62;   // 가운데 라벨 원
 // 실행(안쪽 진한 띠)의 바깥 경계 — 눈에 보이는 "면적"이 전체 원의 3/5이 되도록
 // 계산한다. 원의 면적은 반지름의 제곱에 비례하므로, 반지름을 그대로 3/5 배
 // 하면 면적은 (3/5)² ≈ 36%로 훨씬 작게 보인다. 그래서 √(3/5)를 곱한다.
 const R_ACTUAL_OUT = Math.round(R_OUT * Math.sqrt(3 / 5));
-const R_TICK = 150, R_TICK_MAJOR = 155, R_LABEL = 167;
-const R_CALLOUT_START = R_OUT + 4;    // 콜아웃 점선이 시작하는 지점(파이 가장자리 바로 밖)
-const R_CALLOUT_END = R_LABEL + 8;   // 점선이 끝나는 지점(시간 눈금 숫자 밖)
-const R_CALLOUT_TEXT = R_CALLOUT_END + 10; // 이름 글자가 놓이는 지점
+const R_TICK = 166, R_TICK_MAJOR = 171, R_LABEL = 182;
+// 콜아웃(꺾인 점선 이름표) — 원 밖으로 조금 나온 뒤 좌우로 꺾여, 이름은 항상
+// 화면 왼쪽/오른쪽 끝줄에 세로로 가지런히 선다. 그래야 자정 근처처럼 짧은
+// 블록이 몰려 있어도 글자끼리 겹치지 않는다.
+const R_CALLOUT_START = R_OUT + 3;   // 점선이 시작하는 지점(파이 가장자리 바로 밖)
+const R_CALLOUT_BEND = R_OUT + 16;   // 여기서 가로로 꺾는다
+const R_CALLOUT_KNEE = 190;          // 세로로 줄 맞춰 서는 지점(시간 눈금 숫자 밖)
+const CALLOUT_FONT = 8.4;            // 콜아웃 글자 크기(style.css 와 맞춰 둔다)
+const CALLOUT_LINE_H = 9.6;          // 한 줄 높이
+const CALLOUT_MAX_LINES = 3;
+// 이름이 들어갈 가로 폭 = 화면 끝까지 남은 자리. 이걸 넘기면 글자가 잘린다.
+const CALLOUT_MAX_W = CX - R_CALLOUT_KNEE - 6;
 
 const $ = (id) => document.getElementById(id);
 
@@ -715,21 +725,113 @@ function segLabel(b, r0, r1) {
  * 어느 블록의 이름인지 잇는다. 시간 눈금(wheelChrome) 위에 그려야 하므로
  * segLabel과 달리 renderWheel에서 별도로, 더 나중에 호출한다.
  */
-function segCallout(b, r0, r1) {
-  const dur = b.end - b.start;
-  if (dur <= 0 || dur >= MIN_LABEL_MIN_VERT) return '';
+/** 한글은 한 칸, 영문·숫자·기호는 그보다 좁다 — 글자 수가 아니라 폭으로 재야 맞다. */
+function charW(ch) {
+  return /[ᄀ-ᇿ㄰-㆏가-힣一-鿿぀-ヿ]/.test(ch)
+    ? CALLOUT_FONT : CALLOUT_FONT * 0.56;
+}
+const textW = (s) => Array.from(s).reduce((w, c) => w + charW(c), 0);
 
-  const mid = (b.start + b.end) / 2;
-  const midDeg = minToDeg(mid);
-  const a = act(b.activity);
-  const [lx1, ly1] = polar(R_CALLOUT_START, midDeg);
-  const [lx2, ly2] = polar(R_CALLOUT_END, midDeg);
-  const [tx, ty] = polar(R_CALLOUT_TEXT, midDeg);
-  const line = `<line class="seg-callout-line" x1="${lx1.toFixed(1)}" y1="${ly1.toFixed(1)}"` +
-               ` x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}" stroke="${a.color}"/>`;
-  const text = `<text class="seg-label seg-label-callout" data-activity="${esc(b.activity)}" data-start="${b.start}" text-anchor="middle"` +
-               ` dominant-baseline="central" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}">${esc(blockLabel(b))}</text>`;
-  return line + text;
+/**
+ * 이름을 남은 폭에 맞춰 접는다. 띄어쓰기에서 먼저 끊고, 한 낱말이 그래도
+ * 길면 글자 단위로 자른다. 줄 수를 넘기면 마지막 줄 끝을 … 로 줄인다
+ * (전체 이름은 `<title>` 로 띄우고, 아래 블록 목록에는 그대로 다 보인다).
+ */
+function calloutLines(text) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  const pushCur = () => { if (cur) { lines.push(cur); cur = ''; } };
+
+  for (const w of words) {
+    const tryLine = cur ? `${cur} ${w}` : w;
+    if (textW(tryLine) <= CALLOUT_MAX_W) { cur = tryLine; continue; }
+    pushCur();
+    // 낱말 하나가 한 줄보다 길면 글자 단위로 쪼갠다
+    let rest = w;
+    while (textW(rest) > CALLOUT_MAX_W) {
+      let take = '';
+      for (const ch of Array.from(rest)) {
+        if (textW(take + ch) > CALLOUT_MAX_W) break;
+        take += ch;
+      }
+      if (!take) break;
+      lines.push(take);
+      rest = rest.slice(take.length);
+    }
+    cur = rest;
+  }
+  pushCur();
+
+  if (lines.length <= CALLOUT_MAX_LINES) return lines.length ? lines : [text];
+  const kept = lines.slice(0, CALLOUT_MAX_LINES);
+  let last = kept[CALLOUT_MAX_LINES - 1];
+  while (last && textW(last + '…') > CALLOUT_MAX_W) last = last.slice(0, -1);
+  kept[CALLOUT_MAX_LINES - 1] = last + '…';
+  return kept;
+}
+
+/**
+ * 짧은 블록들의 이름표를 **한꺼번에** 배치한다.
+ *
+ * 하나씩 그리면 자정 근처처럼 몰려 있는 구간에서 글자가 서로 겹쳐 못 읽는다.
+ * 그래서 좌/우로 나눠 y 순으로 세운 뒤, 위에서부터 최소 간격만큼 밀어내고
+ * 아래로 넘치면 다시 위로 되민다. 점선은 원에서 조금 나오다가 가로로 꺾여
+ * 그 자리로 이어진다.
+ */
+function calloutLayer(blocks) {
+  const items = [];
+  for (const b of blocks) {
+    const dur = b.end - b.start;
+    if (dur <= 0 || dur >= MIN_LABEL_MIN_VERT) continue;
+    const deg = minToDeg((b.start + b.end) / 2);
+    const lines = calloutLines(blockLabel(b));
+    const [ax, ay] = polar(R_CALLOUT_START, deg);
+    const [bx, by] = polar(R_CALLOUT_BEND, deg);
+    items.push({
+      b, deg, ax, ay, bx, by, lines,
+      right: Math.sin((deg * Math.PI) / 180) >= 0,
+      h: lines.length * CALLOUT_LINE_H,
+      y: by,
+    });
+  }
+  if (!items.length) return '';
+
+  const top = CY - R_LABEL, bottom = CY + R_LABEL;
+  for (const right of [true, false]) {
+    const col = items.filter((i) => i.right === right).sort((a, b) => a.y - b.y);
+    let prevBottom = top;
+    for (const it of col) {                      // 위에서부터 아래로 밀어내기
+      it.y = Math.max(it.y, prevBottom + it.h / 2);
+      prevBottom = it.y + it.h / 2 + 3;
+    }
+    let over = col.length ? prevBottom - bottom : 0;
+    if (over > 0) {                              // 아래로 넘친 만큼 위로 되민다
+      let nextTop = bottom;
+      for (let i = col.length - 1; i >= 0; i--) {
+        col[i].y = Math.min(col[i].y, nextTop - col[i].h / 2);
+        nextTop = col[i].y - col[i].h / 2 - 3;
+      }
+    }
+  }
+
+  let s = '';
+  for (const it of items) {
+    const color = act(it.b.activity).color;
+    const kneeX = it.right ? CX + R_CALLOUT_KNEE : CX - R_CALLOUT_KNEE;
+    const textX = it.right ? kneeX + 5 : kneeX - 5;
+    // 원 → 살짝 바깥 → 가로로 꺾어 이름줄까지
+    s += `<polyline class="seg-callout-line" fill="none" stroke="${color}" points="` +
+         `${it.ax.toFixed(1)},${it.ay.toFixed(1)} ${it.bx.toFixed(1)},${it.by.toFixed(1)} ` +
+         `${kneeX},${it.y.toFixed(1)}"/>`;
+    const y0 = it.y - ((it.lines.length - 1) * CALLOUT_LINE_H) / 2;
+    const tspans = it.lines.map((ln, i) =>
+      `<tspan x="${textX}" y="${(y0 + i * CALLOUT_LINE_H).toFixed(1)}">${esc(ln)}</tspan>`).join('');
+    s += `<text class="seg-label seg-label-callout" data-activity="${esc(it.b.activity)}"` +
+         ` data-start="${it.b.start}" text-anchor="${it.right ? 'start' : 'end'}"` +
+         ` dominant-baseline="central">${tspans}<title>${esc(blockLabel(it.b))}</title></text>`;
+  }
+  return s;
 }
 
 /* --------------------------------------------------------------- render */
@@ -859,11 +961,7 @@ function renderWheel(side) {
 
   // 콜아웃(점선 이름표)은 시간 눈금 숫자보다 바깥에 있으므로, 눈금을 그린
   // 뒤에 그려야 눈금 숫자에 가리지 않는다.
-  if (side === 'plan') {
-    for (const b of blocks) s += segCallout(b, R_HOLE, R_OUT);
-  } else {
-    for (const b of blocks) s += segCallout(b, R_HOLE, R_ACTUAL_OUT);
-  }
+  s += calloutLayer(blocks);
 
   const study = groupMinutes(blocks, '공부');
   s += `<circle cx="${CX}" cy="${CY}" r="${R_HOLE}" fill="var(--card)" stroke="var(--line)" stroke-width="1"/>`;
@@ -885,10 +983,21 @@ function splitRange(s, e) {
   return out.filter(([a, b]) => b > a);
 }
 
+/**
+ * 화면 좌표 → 원 좌표계. **viewBox 를 그대로 읽어서 환산한다.**
+ *
+ * 예전엔 360 으로 나눠 놨는데 viewBox 는 400 이었다. 그래서 실제로 누른 곳보다
+ * 안쪽·위쪽으로 치우친 지점이 계산돼서, 드래그하면 마우스와 칠해지는 자리가
+ * 어긋났다. 숫자를 하드코딩하면 좌표계를 바꿀 때 또 어긋나므로 viewBox 에서
+ * 직접 가져온다.
+ */
 function pointOf(svg, ev) {
   const r = svg.getBoundingClientRect();
-  const x = ((ev.clientX - r.left) / r.width) * 360;
-  const y = ((ev.clientY - r.top) / r.height) * 360;
+  const vb = svg.viewBox.baseVal;
+  const w = vb && vb.width ? vb.width : VB_W;
+  const h = vb && vb.height ? vb.height : VB_H;
+  const x = (vb ? vb.x : 0) + ((ev.clientX - r.left) / r.width) * w;
+  const y = (vb ? vb.y : 0) + ((ev.clientY - r.top) / r.height) * h;
   const dx = x - CX, dy = y - CY;
   let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
   if (deg < 0) deg += 360;
@@ -2619,7 +2728,9 @@ async function saveTaskEditor() {
 }
 
 function miniWheel(d) {
-  let s = '<svg viewBox="0 0 400 400">';
+  // 이름표가 없으므로 원에 딱 맞게 잘라낸다 — 같은 자리에서 더 크게 보인다
+  const m = R_OUT + 4;
+  let s = `<svg viewBox="${CX - m} ${CY - m} ${m * 2} ${m * 2}">`;
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="var(--card-soft)"/>`;
   for (const b of d.plan) s += segShape(b, 0, R_OUT, act(b.activity).color, 0.42);
   for (const b of d.actual) s += segShape(b, 44, R_ACTUAL_OUT, act(b.activity).color, 1);
