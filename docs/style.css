@@ -18,6 +18,9 @@
   --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px -12px rgba(16, 24, 40, .16);
   --shadow-lg: 0 2px 4px rgba(16, 24, 40, .04), 0 24px 48px -20px rgba(16, 24, 40, .22);
   --r: 16px;
+  /* 주간 일정표 칸 색 — 색상(hue)은 칸 내용에서 뽑고, 여기서는 톤만 정한다 */
+  --cell-s: 62%;
+  --cell-l: 93%;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +41,8 @@
     --warn: #f0b055;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -12px rgba(0, 0, 0, .6);
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, .3), 0 24px 48px -20px rgba(0, 0, 0, .7);
+    --cell-s: 22%;
+    --cell-l: 20%;
   }
 }
 
@@ -839,6 +844,21 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 }
 .sched-week-head .sub { font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
 .sched-week-head .sc-toggle { margin-left: auto; font-size: 11.5px; padding: 5px 10px; }
+.sched-week-head .sc-del { font-size: 11.5px; padding: 5px 10px; color: var(--ink-3); }
+.sched-week-head .sc-del:hover { color: #d64545; border-color: #d64545; }
+/* 삭제만 있고 요약 토글이 없는 주(이번 주·다음 주)에서도 버튼은 오른쪽 끝에 */
+.sched-week-head .sc-toggle ~ .sc-del { margin-left: 0; }
+.sched-week-head > .sc-del:not(.sc-toggle ~ *) { margin-left: auto; }
+
+.sc-wk {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 2px 7px;
+  letter-spacing: .02em;
+}
 
 .sched-table-wrap {
   overflow-x: auto;
@@ -882,7 +902,12 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   white-space: nowrap;
   padding: 0 3px;
 }
-.sched-table td.sc-filled { background: var(--card-soft); }
+/* 내용이 있는 칸은 글자에서 뽑은 색(--cell-h)으로 옅게 칠한다.
+   같은 과목이면 늘 같은 색이라 표를 훑을 때 덩어리가 눈에 먼저 들어온다.
+   채도·명도만 테마별로 바꾸면 라이트/다크 양쪽에서 알아서 맞는다. */
+.sched-table td.sc-filled {
+  background: hsl(var(--cell-h, 220) var(--cell-s) var(--cell-l));
+}
 .sched-table input {
   width: 100%;
   height: 30px;
@@ -915,13 +940,15 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 /* 묶인 칸 — 여러 요일/시간을 한 칸으로 보여준다. 여기 쓴 내용은 묶인 범위 전체에 들어간다 */
 .sched-table td.sc-merged { position: relative; }
 .sched-table td.sc-merged > input { font-weight: 600; }
+.sched-table td[data-r] { position: relative; }
 
-.sched-table .sc-split {
+/* 나누기(⇹) / 다시 합치기(⇼) — 잘못 눌러도 되돌릴 수 있게 둘 다 항상 보인다 */
+.sched-table .sc-act {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 17px;
-  height: 17px;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
   border-radius: 5px;
@@ -929,15 +956,20 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   color: var(--ink-3);
   font-size: 10px;
   line-height: 1;
-  opacity: 0;
-  transition: opacity .12s ease;
+  opacity: .5;
+  transition: opacity .12s ease, background .12s ease;
 }
-.sched-table td.sc-merged:hover .sc-split,
-.sched-table .sc-split:focus-visible { opacity: 1; }
-.sched-table .sc-split:hover { background: var(--card); color: var(--ink); }
-/* 터치 기기에는 hover 가 없으니 항상 보이게 둔다 */
-@media (hover: none) {
-  .sched-table .sc-split { opacity: .45; }
+.sched-table td:hover .sc-act { opacity: 1; }
+.sched-table .sc-act:hover { background: var(--card); color: var(--ink); opacity: 1; }
+.sched-table .sc-act:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* 드래그로 합칠 범위 고르기 */
+.sched-table.sc-dragging { user-select: none; }
+.sched-table.sc-dragging input { pointer-events: none; }
+.sched-table td.sc-picking {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
 }
 
 /* ---------- 지난 주 요약판 ---------- */
