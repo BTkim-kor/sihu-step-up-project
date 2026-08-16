@@ -1398,27 +1398,23 @@ function renderScheduleWeeks() {
       const i = Number(inp.dataset.slot);
       const parsed = parseSchedTime(e.target.value);
       const prev = i > 0 ? slots[i - 1] : null;
-      // 못 읽는 값이거나 앞 칸을 0분으로 뭉개는 값이면 원래대로 되돌린다
-      if (!parsed || (prev && prev.start >= parsed.start)) {
+      const next = i < slots.length - 1 ? slots[i + 1] : null;
+      // 못 읽는 값이거나, 바로 앞/뒤 칸을 0분 이하로 뭉개는 값이면 되돌린다
+      if (!parsed
+          || (prev && prev.start >= parsed.start)
+          || (next && parsed.end >= next.end)
+          || (!next && parsed.end > 1440)) {
         e.target.value = slotLabel(slots[i]);
         return;
       }
-      // 끝시간이 밀린 만큼, 아래쪽 칸 전체를 같은 길이를 유지한 채 통째로 민다.
-      // (한 칸만 늘리고 다음 칸을 깎으면 결국 아래에서 시간이 안 맞는다.)
-      const delta = parsed.end - slots[i].end;
+      // 바뀐 만큼 바로 옆 한 칸의 길이만 늘거나 준다. 나머지 칸은 건드리지 않는다.
       slots[i].start = parsed.start;
       slots[i].end = parsed.end;
       if (prev) prev.end = parsed.start;
-      if (delta) {
-        const cap = (m) => Math.max(0, Math.min(1440, m));
-        for (let k = i + 1; k < slots.length; k++) {
-          slots[k].start = cap(slots[k].start + delta);
-          slots[k].end = cap(slots[k].end + delta);
-        }
-      }
+      if (next) next.start = parsed.end;
       w.slots = slots;
       scheduleSaveDebounced(w.weekStart);
-      renderScheduleWeeks();               // 아래쪽 칸 라벨도 같이 갱신된다
+      renderScheduleWeeks();               // 옆 칸 라벨도 같이 갱신된다
     });
   });
 }
