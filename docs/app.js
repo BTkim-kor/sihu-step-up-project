@@ -351,10 +351,18 @@ function segLabel(b, r0, r1) {
   // 가로로 넣기엔 좁다 — "세로"의 기준은 화면 상/하가 아니라 그 블록의
   // 안쪽 원(위) → 바깥 원(아래) 방향이다. 글자를 한 자씩 그 방향(반지름)을
   // 따라 쌓는다. 글자 자체는 눕히지 않고 항상 똑바로 서 있는 채로 둔다.
+  //
+  // 다만 원 위쪽 절반(18시~24시~6시 구간)에서는 반지름이 커질수록 화면상
+  // 오히려 위로 올라간다 — 그대로 두면 "수학"이 "학수"처럼 거꾸로 읽힌다.
+  // 그 구간에서는 글자 순서를 반대로 배치해, 화면상 항상 첫 글자가 위에
+  // 오도록(=위→아래로 읽히도록) 한다.
+  const rad = (midDeg * Math.PI) / 180;
+  const risesInward = Math.cos(rad) > 0; // true면 바깥으로 갈수록 화면상 위로 향한다
   const chars = Array.from(a.name);
   const radiusStep = 12;
   const tspans = chars.map((ch, i) => {
-    const rr = midR + (i - (chars.length - 1) / 2) * radiusStep;
+    const order = risesInward ? chars.length - 1 - i : i;
+    const rr = midR + (order - (chars.length - 1) / 2) * radiusStep;
     const [x, y] = polar(rr, midDeg);
     return `<tspan x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(ch)}</tspan>`;
   }).join('');
