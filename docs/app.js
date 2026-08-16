@@ -2995,6 +2995,17 @@ async function init() {
   $('editPlanBtn').onclick = () => setEditMode('plan', !editMode.plan);
   $('editActualBtn').onclick = () => setEditMode('actual', !editMode.actual);
 
+  $('resetPlanBtn').onclick = async () => {
+    if (!editMode.plan) return;
+    // 이미 저장된 날은 buildDefaultDayPlan 이 자동으로 건드리지 않으므로,
+    // "요즘 주간 일정표 기준으로 다시 보고 싶다"는 요청은 이 버튼으로만 된다.
+    if (!confirm('지금 계획을 지우고 주간 일정표 기준 기본값으로 다시 채울까요?\n되돌리기(⌘Z)로 취소할 수 있습니다.')) return;
+    const week = await apiGetScheduleWeek(weekStart(state.date)).catch(() => null);
+    pushUndo();
+    state.plan = buildDefaultDayPlan(state.date, week);
+    changed();
+  };
+
   $('copyPlanBtn').onclick = () => {
     if (!editMode.actual || !state.plan.length) return;
     pushUndo();
