@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>시후의 Step-UP!</title>
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g transform="translate(256,256) rotate(-90)" fill="none" stroke-width="76">
+    <circle r="164" stroke="#4c6fff" stroke-dasharray="257.6 773.0" stroke-dashoffset="0"/>
+    <circle r="164" stroke="#2fb6a5" stroke-dasharray="206.1 824.5" stroke-dashoffset="-257.6"/>
+    <circle r="164" stroke="#f2c14e" stroke-dasharray="175.2 855.4" stroke-dashoffset="-463.7"/>
+    <circle r="164" stroke="#eb5757" stroke-dasharray="164.9 865.7" stroke-dashoffset="-638.9"/>
+    <circle r="164" stroke="#2e3a4b" stroke-dasharray="226.7 803.9" stroke-dashoffset="-803.8"/>
+  </g>
+  <g fill="#2e3a4b">
+    <rect x="176" y="286" width="48" height="42" rx="8"/>
+    <rect x="232" y="248" width="48" height="80" rx="8"/>
+    <rect x="288" y="204" width="48" height="124" rx="8"/>
+  </g>
+</svg>

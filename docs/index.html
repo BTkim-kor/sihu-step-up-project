@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>시후의 Step-UP!</title>
+
+<!-- 홈 화면에 추가했을 때 앱처럼 열리게 하는 설정.
+     manifest 에 start_url 을 두지 않는 건 일부러다 — 두면 그 주소로 고정돼서
+     가족 코드(?f=)가 떨어져 나간다. 없으면 추가한 그 순간의 주소를 쓴다. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Step-UP!">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f6f8">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1116">
+
 <link rel="stylesheet" href="style.css">
 </head>
 <body>

@@ -254,8 +254,13 @@ async function initCloud() {
   }
 
   localStorage.setItem('sp_family_id', fid);
-  if (fromUrl) {
-    url.searchParams.delete('f');
+
+  // 가족 코드를 주소에 계속 달아 둔다. 예전엔 주소를 깔끔하게 하려고 지웠는데,
+  // 그러면 홈 화면에 추가할 때 코드 없는 주소가 저장된다. 아이폰의 홈 화면
+  // 웹앱은 사파리와 저장소를 따로 쓰기 때문에, 그 아이콘으로 처음 열면
+  // 코드를 못 찾고 엉뚱한 새 가족 공간이 만들어진다.
+  if (!fromUrl) {
+    url.searchParams.set('f', fid);
     history.replaceState(null, '', url);
   }
 
