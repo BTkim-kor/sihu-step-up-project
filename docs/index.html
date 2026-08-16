@@ -96,6 +96,7 @@
       <div class="head-actions">
         <span class="chip-stat" id="planStat">—</span>
         <button class="ghost sm" data-clear="plan">비우기</button>
+        <button class="ghost sm" id="editPlanBtn">✎ 편집</button>
       </div>
     </div>
 
@@ -103,7 +104,7 @@
       <svg class="wheel" id="wheelPlan" viewBox="0 0 400 400" role="img" aria-label="계획 원그래프"></svg>
     </div>
 
-    <div class="hint">활동을 고르고 원 위를 <b>드래그</b>하세요</div>
+    <div class="hint" id="hintPlan">활동을 고르고 원 위를 <b>드래그</b>하세요</div>
 
     <div class="palette" id="palettePlan"></div>
 
@@ -117,6 +118,7 @@
         <span class="chip-stat" id="actualStat">—</span>
         <button class="ghost sm" id="copyPlanBtn" title="계획을 실행 쪽으로 통째로 복사">⧉ 계획 복사</button>
         <button class="ghost sm" data-clear="actual">비우기</button>
+        <button class="ghost sm" id="editActualBtn">✎ 편집</button>
       </div>
     </div>
 
@@ -124,7 +126,7 @@
       <svg class="wheel" id="wheelActual" viewBox="0 0 400 400" role="img" aria-label="실행 원그래프"></svg>
     </div>
 
-    <div class="hint">안쪽 진한 띠가 <b>실행</b>, 바깥 옅은 색이 <b>계획</b>입니다</div>
+    <div class="hint" id="hintActual">안쪽 진한 띠가 <b>실행</b>, 바깥 옅은 색이 <b>계획</b>입니다</div>
 
     <div class="palette" id="paletteActual"></div>
 

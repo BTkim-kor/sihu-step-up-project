@@ -262,8 +262,11 @@ input:focus-visible, button:focus-visible, textarea:focus-visible {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;          /* 버튼이 늘어도 카드 밖으로 밀려나지 않게 */
+  justify-content: flex-end;
+  gap: 6px 8px;
 }
+.card-head { flex-wrap: wrap; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.plan { background: #4c6fff; }
@@ -524,16 +527,18 @@ input:focus-visible, button:focus-visible, textarea:focus-visible {
 .brow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;   /* 편집 모드의 시각 입력칸은 더 못 줄어든다 — 좁으면 접힌다 */
+  gap: 6px 8px;
   padding: 5px 8px;
   border-radius: 10px;
   border: 1px solid transparent;
 }
+.brow .nm { min-width: 0; }
 .brow:hover { background: var(--card-soft); border-color: var(--line); }
 .brow .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .brow .nm { font-size: 12.5px; width: 82px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .brow .sep { color: var(--ink-3); font-size: 11px; }
-.brow .dur { margin-left: auto; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.brow .dur { margin-left: auto; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .brow .del {
   border: none; background: transparent; color: var(--ink-3);
   padding: 2px 6px; border-radius: 7px; font-size: 14px; line-height: 1;
@@ -1093,6 +1098,34 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .sched-sum tr.sc-gap .sc-time { font-size: 9.5px; opacity: .6; }
 /* 요약판은 읽기 전용이라 스크롤 고정이 필요 없다 — 통째로 보여준다 */
 .sched-week.is-sum .sched-table-wrap { max-height: none; }
+
+/* ---------- 계획·실행 편집 잠금 ---------- */
+/* 휴대폰에서 화면을 스치기만 해도 원에 칠이 되어 계획이 틀어졌다.
+   기본은 읽기 모드로 잠가 두고, "편집"을 눌러야 손댈 수 있게 한다. */
+
+.card[data-side] .wheel { touch-action: pan-y; }          /* 잠겼을 땐 스크롤이 우선 */
+.card[data-side].is-editing .wheel { touch-action: none; cursor: crosshair; }
+
+/* 읽기 모드에서는 팔레트와 "지금까지 ~ 함"이 할 일이 없으니 감춘다 */
+.card[data-side]:not(.is-editing) .palette,
+.card[data-side]:not(.is-editing) .quickrow { display: none; }
+
+/* 편집 중인 카드는 테두리로 표시 */
+.card[data-side].is-editing {
+  border-color: var(--accent);
+  box-shadow: var(--shadow), 0 0 0 3px var(--accent-soft);
+}
+
+/* 읽기 모드의 시각은 입력칸 대신 글자 */
+.brow .ro-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  padding: 3px 0;
+  text-align: center;
+  white-space: nowrap;
+}
+.brow .del-sp { width: 22px; }
 
 /* ---------- 학습진도 현황판 · 수행평가 ---------- */
 

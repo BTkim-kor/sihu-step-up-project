@@ -597,6 +597,43 @@ function nowMarker() {
 
 let drag = null; // {side, startMin, acc, prevAng, activity}
 
+/**
+ * 계획·실행 각각의 편집 모드. 기본은 읽기 모드다.
+ *
+ * 휴대폰에서는 화면을 스치기만 해도 원 위에 칠이 되어 세워둔 계획이 틀어졌다.
+ * 그래서 고칠 때만 "편집"을 눌러 열고, 끝나면 "완료"로 다시 잠근다.
+ * 날짜를 옮기거나 새로고침하면 다시 읽기 모드로 돌아온다(저장하지 않는다).
+ */
+const editMode = { plan: false, actual: false };
+
+function setEditMode(side, on) {
+  editMode[side] = on;
+  const card = document.querySelector(`.card[data-side="${side}"]`);
+  if (card) card.classList.toggle('is-editing', on);
+  const btn = $(side === 'plan' ? 'editPlanBtn' : 'editActualBtn');
+  if (btn) {
+    btn.textContent = on ? '완료' : '✎ 편집';
+    btn.classList.toggle('primary', on);
+    btn.classList.toggle('ghost', !on);
+  }
+  const hint = $(side === 'plan' ? 'hintPlan' : 'hintActual');
+  if (hint) {
+    if (on) hint.innerHTML = '활동을 고르고 원 위를 <b>드래그</b>하세요';
+    else if (side === 'plan') hint.innerHTML = '✎ <b>편집</b>을 눌러야 고칠 수 있습니다';
+    else hint.innerHTML = '안쪽 진한 띠가 <b>실행</b>, 바깥 옅은 색이 <b>계획</b>입니다';
+  }
+  if (!on) state.sel[side] = null;   // 잠글 때 고른 활동도 놓는다
+  renderPalette(side);
+  renderBlocks(side);
+  renderWheel(side);
+}
+
+/** 날짜를 옮기거나 다시 불러올 때 양쪽 다 읽기 모드로 되돌린다. */
+function lockBothSides() {
+  setEditMode('plan', false);
+  setEditMode('actual', false);
+}
+
 function renderWheel(side) {
   const svg = side === 'plan' ? $('wheelPlan') : $('wheelActual');
   const blocks = state[side];
@@ -685,6 +722,7 @@ function attachWheel(side) {
   const tip = $('tooltip');
 
   svg.addEventListener('pointerdown', (ev) => {
+    if (!editMode[side]) return;                 // 읽기 모드에서는 그려지지 않는다
     if (ev.target.closest('.seg-label')) return; // 이름 클릭은 편집용 — 칠하기 시작하지 않는다
     const p = pointOf(svg, ev);
     if (p.dist > R_OUT + 14 || p.dist < 14) return;
@@ -696,11 +734,13 @@ function attachWheel(side) {
   });
 
   svg.addEventListener('click', (ev) => {
+    if (!editMode[side]) return;
     const label = ev.target.closest('.seg-label');
     if (label) openActivityEditor(label.dataset.activity);
   });
 
   svg.addEventListener('pointermove', (ev) => {
+    if (!editMode[side] && !drag) return;   // 읽기 모드에선 시각 안내도 띄우지 않는다
     const p = pointOf(svg, ev);
 
     if (!drag || drag.side !== side) {
@@ -925,18 +965,27 @@ function wireActivityManager() {
 function renderBlocks(side) {
   const el = side === 'plan' ? $('blocksPlan') : $('blocksActual');
   const arr = state[side];
+  const editing = editMode[side];
   el.innerHTML = arr.map((b, i) => {
     const a = act(b.activity);
+    // 읽기 모드에서는 시각을 글자로만 보여준다 — 입력칸이면 실수로 고쳐진다
+    const times = editing
+      ? `<input type="time" step="600" value="${minToStr(b.start)}" data-f="start">
+         <span class="sep">→</span>
+         <input type="time" step="600" value="${minToStr(b.end % DAY)}" data-f="end">`
+      : `<span class="ro-time">${minToStr(b.start)}</span>
+         <span class="sep">→</span>
+         <span class="ro-time">${minToStr(b.end % DAY)}</span>`;
     return `<div class="brow" data-i="${i}">
       <span class="sw" style="background:${esc(a.color)}"></span>
       <span class="nm" title="${esc(a.name)}">${esc(a.name)}</span>
-      <input type="time" step="600" value="${minToStr(b.start)}" data-f="start">
-      <span class="sep">→</span>
-      <input type="time" step="600" value="${minToStr(b.end % DAY)}" data-f="end">
+      ${times}
       <span class="dur">${fmtDur(b.end - b.start)}</span>
-      <button class="del" title="삭제">×</button>
+      ${editing ? '<button class="del" title="삭제">×</button>' : '<span class="del-sp"></span>'}
     </div>`;
   }).join('');
+
+  if (!editing) return;
 
   el.querySelectorAll('.brow').forEach((row) => {
     const i = +row.dataset.i;
@@ -2654,6 +2703,7 @@ async function load(dateStr) {
   state.recent = Array.isArray(recent) ? recent : [];
   $('memo').value = state.memo;
 
+  lockBothSides();   // 날짜를 옮기면 다시 읽기 모드로 (renderAll 을 겸한다)
   renderAll();
   state.loading = false;
   setSaveState(day.updated_at ? '저장됨' : '새 계획표', day.updated_at ? 'saved' : '');
@@ -2739,8 +2789,12 @@ async function init() {
   $('todayBtn').onclick = () => load(todayStr());
   $('undoBtn').onclick = undo;
 
+  // 계획·실행 편집 잠금 토글
+  $('editPlanBtn').onclick = () => setEditMode('plan', !editMode.plan);
+  $('editActualBtn').onclick = () => setEditMode('actual', !editMode.actual);
+
   $('copyPlanBtn').onclick = () => {
-    if (!state.plan.length) return;
+    if (!editMode.actual || !state.plan.length) return;
     pushUndo();
     state.actual = JSON.parse(JSON.stringify(state.plan));
     changed();
@@ -2748,7 +2802,7 @@ async function init() {
 
   $('nowBtn').onclick = () => {
     const id = state.sel.actual;
-    if (!id || id === ERASER) return;
+    if (!editMode.actual || !id || id === ERASER) return;
     const now = new Date();
     const end = snap(now.getHours() * 60 + now.getMinutes());
     // 지금 이전에 이미 기록된 마지막 지점부터 채운다 (계획을 복사해 둔 상태에서도 동작)
@@ -2762,7 +2816,7 @@ async function init() {
   document.querySelectorAll('[data-clear]').forEach((b) => {
     b.onclick = () => {
       const side = b.dataset.clear;
-      if (!state[side].length) return;
+      if (!editMode[side] || !state[side].length) return;
       pushUndo();
       state[side] = [];
       changed();
