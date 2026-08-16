@@ -1160,15 +1160,19 @@ async function addNewScheduleWeek() {
   renderScheduleWeeks();
 }
 
-async function openSchedule() {
-  $('scheduleView').hidden = false;
-  document.body.style.overflow = 'hidden';
-  await loadScheduleWeeks();
-}
-
-function closeSchedule() {
-  $('scheduleView').hidden = true;
-  document.body.style.overflow = '';
+/**
+ * 앱 맨 위 탭 전환. "하루 계획표"↔"주간 일정표"는 열고 닫는 오버레이가
+ * 아니라, 같은 화면 안의 두 페이지를 오가는 개념이라 탭 버튼 자체가
+ * 라우터 역할을 한다(뒤에 탭이 늘어나도 이 함수 하나로 처리된다).
+ */
+async function switchTab(tab) {
+  const isDay = tab === 'day';
+  $('panelDay').hidden = !isDay;
+  $('panelSchedule').hidden = isDay;
+  $('tabBtnDay').setAttribute('aria-selected', String(isDay));
+  $('tabBtnSchedule').setAttribute('aria-selected', String(!isDay));
+  window.scrollTo(0, 0);
+  if (!isDay) await loadScheduleWeeks(); // 다른 기기의 최신 내용을 매번 다시 받아온다
 }
 
 function miniWheel(d) {
@@ -1565,9 +1569,11 @@ async function init() {
   $('weekNext').onclick = () => openWeek(shiftDate(week.start, 7));
   $('weekThis').onclick = () => openWeek(weekStart(todayStr()));
 
+  // 상단 탭
+  $('tabBtnDay').onclick = () => switchTab('day');
+  $('tabBtnSchedule').onclick = () => switchTab('schedule');
+
   // 주간 일정표
-  $('scheduleBtn').onclick = openSchedule;
-  $('scheduleClose').onclick = closeSchedule;
   $('scheduleAddWeek').onclick = addNewScheduleWeek;
 
   // 단축키 — ⌘(macOS) / Ctrl(Windows·Linux) 양쪽 모두 동작한다
@@ -1579,8 +1585,8 @@ async function init() {
 
   document.addEventListener('keydown', (e) => {
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    const dayTabActive = !$('panelDay').hidden;
     const weekOpen = !$('weekView').hidden;
-    const scheduleOpen = !$('scheduleView').hidden;
     const editOpen = !$('editAct').hidden;
     const manageOpen = !$('manageAct').hidden;
     const mod = e.metaKey || e.ctrlKey;
@@ -1588,18 +1594,17 @@ async function init() {
 
     if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
     if (key === 'escape' && manageOpen) { e.preventDefault(); closeActivityManager(); return; }
-    if (key === 'escape' && scheduleOpen) { e.preventDefault(); closeSchedule(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
-    if (editOpen || manageOpen || (scheduleOpen && typing)) return;
+    if (editOpen || manageOpen || (!dayTabActive && typing)) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
-    if (mod && key === 'z' && !typing && !weekOpen && !scheduleOpen) { e.preventDefault(); undo(); return; }
-    if (mod && key === 'w') {                        // 브라우저 탭 닫기는 막지 못할 수 있다
+    if (mod && key === 'z' && !typing && dayTabActive && !weekOpen) { e.preventDefault(); undo(); return; }
+    if (mod && key === 'w' && (dayTabActive || weekOpen)) {   // 브라우저 탭 닫기는 막지 못할 수 있다
       e.preventDefault();
       weekOpen ? closeWeek() : openWeek();
       return;
     }
-    if (scheduleOpen || typing || mod || e.altKey) return;
+    if (!dayTabActive || typing || mod || e.altKey) return;
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();

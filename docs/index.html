@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>시후의 하루 계획표</title>
+<title>시후의 Step-UP!</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,24 +11,15 @@
 <header class="topbar">
   <div class="brand">
     <span class="brand-mark"></span>
-    <span>시후의 하루 계획표</span>
+    <span>시후의 Step-UP!</span>
   </div>
 
-  <div class="datenav">
-    <button class="icon" id="prevDay" title="어제">‹</button>
-    <input type="date" id="dateInput">
-    <span class="dow" id="dowLabel"></span>
-    <button class="icon" id="nextDay" title="내일">›</button>
-    <button class="ghost" id="todayBtn">오늘</button>
-  </div>
+  <nav class="app-tabs" role="tablist">
+    <button class="app-tab" id="tabBtnDay" role="tab" aria-selected="true">시후의 하루 계획표</button>
+    <button class="app-tab" id="tabBtnSchedule" role="tab" aria-selected="false">주간 일정표</button>
+  </nav>
 
   <div class="tools">
-    <span class="savestate" id="saveState">불러오는 중…</span>
-    <button id="saveBtn" class="primary">저장</button>
-    <button class="ghost" id="undoBtn">↺ 되돌리기</button>
-    <button class="ghost" id="weekBtn">주간 요약</button>
-    <button class="ghost" id="scheduleBtn">📋 주간 일정표</button>
-
     <div class="share-wrap">
       <button class="ghost" id="shareBtn">🔗 공유</button>
       <div class="share-pop" id="sharePop" hidden>
@@ -60,6 +51,25 @@
       <button class="primary" id="onboardCopy">링크 복사</button>
     </div>
     <button class="ghost" id="onboardStart">시작하기</button>
+  </div>
+</div>
+
+<section class="tab-panel" id="panelDay">
+
+<div class="day-toolbar">
+  <div class="datenav">
+    <button class="icon" id="prevDay" title="어제">‹</button>
+    <input type="date" id="dateInput">
+    <span class="dow" id="dowLabel"></span>
+    <button class="icon" id="nextDay" title="내일">›</button>
+    <button class="ghost" id="todayBtn">오늘</button>
+  </div>
+
+  <div class="tools">
+    <span class="savestate" id="saveState">불러오는 중…</span>
+    <button id="saveBtn" class="primary">저장</button>
+    <button class="ghost" id="undoBtn">↺ 되돌리기</button>
+    <button class="ghost" id="weekBtn">주간 요약</button>
   </div>
 </div>
 
@@ -143,18 +153,18 @@
   </div>
 </section>
 
-<div class="schedule" id="scheduleView" hidden>
-  <header class="week-top">
-    <div class="brand"><span class="brand-mark"></span><span>주간 일정표</span></div>
-    <div class="tools">
+</section><!-- /panelDay -->
+
+<section class="tab-panel" id="panelSchedule" hidden>
+  <div class="day-toolbar">
+    <div class="tools sched-toolbar">
       <button class="ghost" id="scheduleAddWeek">＋ 새 주</button>
-      <button class="ghost" id="scheduleClose">✕ 닫기</button>
     </div>
-  </header>
+  </div>
   <p class="sched-intro">매주 이 형식으로 계획을 세웁니다. 칸을 눌러 바로 고치세요.
     지난 주는 아래로 계속 남아 있어 언제든 다시 볼 수 있습니다.</p>
   <div class="week-body" id="scheduleWeeksList"></div>
-</div>
+</section>
 
 <div class="week" id="weekView" hidden>
   <header class="week-top">

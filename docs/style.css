@@ -98,7 +98,6 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 auto 0 8px;
 }
 
 .tools {
@@ -121,12 +120,42 @@ body {
 
 /* 창이 좁으면 날짜 이동을 아랫줄로 내린다 */
 @media (max-width: 940px) {
-  .topbar { flex-wrap: wrap; row-gap: 10px; }
+  .topbar, .day-toolbar { flex-wrap: wrap; row-gap: 10px; }
   .datenav { order: 3; width: 100%; margin: 0; justify-content: center; }
   .tools { margin-left: auto; }
 }
 .savestate.dirty { color: var(--warn); }
 .savestate.saved { color: var(--good); }
+
+/* ---------- 앱 상단 탭 ---------- */
+
+.app-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 auto 0 18px;
+}
+
+.app-tab {
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 8px 4px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+}
+.app-tab:hover { background: transparent; color: var(--ink-2); }
+.app-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* 하루 계획표 / 주간 일정표 탭 안, 상단의 도구줄(날짜 이동·저장·새 주 등) */
+.day-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 4px 14px;
+}
+.sched-toolbar { margin-left: auto; }
 
 button {
   font: inherit;
@@ -606,7 +635,7 @@ button.primary {
 button.primary:hover { background: var(--accent); border-color: transparent; filter: brightness(1.07); }
 button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 
-.week, .schedule {
+.week {
   position: fixed;
   inset: 0;
   z-index: 90;
@@ -614,7 +643,11 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   background: var(--bg-grad), var(--bg);
   animation: fade .2s ease;
 }
-.week[hidden], .schedule[hidden] { display: none; }
+.week[hidden] { display: none; }
+
+/* 탭 패널(하루 계획표 / 주간 일정표) — 오버레이가 아니라 그냥 본문 한 화면씩 */
+.tab-panel { animation: fade .15s ease; }
+.tab-panel[hidden] { display: none; }
 
 .week-top {
   position: sticky;
@@ -778,14 +811,15 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 
 /* ---------- 주간 일정표 ---------- */
 
+/* body 가 이미 좌우 여백·최대폭을 갖고 있어서(오버레이였던 .week 과 달리
+   #panelSchedule 은 본문 흐름 안에 있다), 여기서는 아래 여백만 더한다. */
 .sched-intro {
-  max-width: 1560px;
-  margin: 0 auto;
-  padding: 0 26px 18px;
+  padding: 0 0 18px;
   color: var(--ink-2);
   font-size: 12.5px;
   line-height: 1.6;
 }
+#panelSchedule .week-body { max-width: none; margin: 0; padding: 0 0 20px; }
 
 .sched-week { margin-bottom: 30px; }
 .sched-week:last-child { margin-bottom: 0; }
