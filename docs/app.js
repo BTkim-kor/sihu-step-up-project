@@ -10,7 +10,10 @@ const ERASER = '__erase';
 const CX = 200, CY = 200;
 const R_OUT = 142;   // 파이 바깥 반지름
 const R_HOLE = 58;   // 가운데 라벨 원
-const R_ACTUAL_OUT = Math.round(R_OUT * 0.6); // 실행(안쪽 진한 띠)의 바깥 경계 — 전체 반지름의 3/5
+// 실행(안쪽 진한 띠)의 바깥 경계 — 눈에 보이는 "면적"이 전체 원의 3/5이 되도록
+// 계산한다. 원의 면적은 반지름의 제곱에 비례하므로, 반지름을 그대로 3/5 배
+// 하면 면적은 (3/5)² ≈ 36%로 훨씬 작게 보인다. 그래서 √(3/5)를 곱한다.
+const R_ACTUAL_OUT = Math.round(R_OUT * Math.sqrt(3 / 5));
 const R_TICK = 150, R_TICK_MAJOR = 155, R_LABEL = 167;
 const R_CALLOUT_START = R_OUT + 4;    // 콜아웃 점선이 시작하는 지점(파이 가장자리 바로 밖)
 const R_CALLOUT_END = R_LABEL + 8;   // 점선이 끝나는 지점(시간 눈금 숫자 밖)
