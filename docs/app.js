@@ -423,21 +423,74 @@ function subtractRange(blocks, s, e) {
   return out;
 }
 
+/**
+ * 블록에 보일 이름. 이름표(label)가 있으면 그걸 쓰고, 없으면 활동 이름을 쓴다.
+ *
+ * 이름표는 주간 일정표에서 옮겨 올 때만 붙는다("점심시간", "간식타임"처럼
+ * 실제로 적힌 말). 색과 분석 단위는 그대로 활동이 맡는다 — 그래서 이름을
+ * 아무리 늘려도 팔레트와 분석 항목은 늘어나지 않는다.
+ */
+function blockLabel(b) {
+  return (b.label || '').trim() || act(b.activity).name;
+}
+
 function normalize(blocks) {
   const sorted = blocks.filter((b) => b.end > b.start).sort((a, b) => a.start - b.start);
   const out = [];
   for (const b of sorted) {
     const last = out[out.length - 1];
-    if (last && last.activity === b.activity && last.end >= b.start) last.end = Math.max(last.end, b.end);
-    else out.push({ ...b });
+    // 이름표가 다르면 같은 활동이라도 따로 둔다 — "점심시간"과 "간식타임"이
+    // 붙어 있다고 한 덩어리가 되면 안 된다. 반대로 이름표 없는 교시들은
+    // 여기서 자연히 "학교일정" 하나로 이어진다.
+    const sameLabel = (last && (last.label || '') === (b.label || ''));
+    if (last && last.activity === b.activity && sameLabel && last.end >= b.start) {
+      last.end = Math.max(last.end, b.end);
+    } else out.push({ ...b });
   }
   return out;
 }
 
-function addBlock(blocks, s, e, activity) {
+function addBlock(blocks, s, e, activity, label) {
   const out = subtractRange(blocks, s, e);
-  out.push({ start: s, end: e, activity });
+  const b = { start: s, end: e, activity };
+  if (label) b.label = label;
+  out.push(b);
   return normalize(out);
+}
+
+/* --------------------------------------------------- 블록 이름표 편집 */
+
+let editingBlock = null;   // { side, start }
+
+function openBlockLabelEditor(side, start) {
+  const b = state[side].find((x) => x.start === start);
+  if (!b) return;
+  editingBlock = { side, start };
+  $('blockLabelName').value = b.label || '';
+  $('blockLabelHint').textContent =
+    `${act(b.activity).name} 블록입니다. 이 블록에만 적용되며, 색은 팔레트의 ⚙ 관리에서 바꿉니다.`;
+  $('blockLabelEdit').hidden = false;
+  $('blockLabelName').focus();
+  $('blockLabelName').select();
+}
+
+function closeBlockLabelEditor() {
+  $('blockLabelEdit').hidden = true;
+  editingBlock = null;
+}
+
+function saveBlockLabel(name) {
+  if (!editingBlock) return;
+  const { side, start } = editingBlock;
+  const b = state[side].find((x) => x.start === start);
+  if (!b) { closeBlockLabelEditor(); return; }
+  pushUndo();
+  const v = (name || '').trim();
+  if (v) b.label = v; else delete b.label;
+  // 이름이 옆 블록과 같아지면 이어붙어야 하므로 다시 정규화한다
+  state[side] = normalize(state[side]);
+  closeBlockLabelEditor();
+  changed();
 }
 
 /* ------------------------------------------- 새 하루의 기본 계획 채우기 */
@@ -466,28 +519,41 @@ const DAY_DEFAULT_TEMPLATE = [
  * 위에서 먼저 걸리는 규칙이 이긴다 — 기본값의 "Roll-Call / 취침"은 잠자리가
  * 아니라 점호로 봐야 해서 취침보다 먼저 둔다.
  */
+/**
+ * 교시·조회·종례는 **이름표를 붙이지 않는다.** 시후가 조절할 수 있는 시간이
+ * 아니라 따로 볼 이유가 적고, 이름표가 없어야 붙어 있는 것끼리 이어져
+ * "학교일정" 한 덩어리가 된다(9:00~12:50 한 블록).
+ */
+const SCHED_SCHOOL_RE = /(^|\s)\d+\s*교시|수업|조회|종례/;
+
 const SCHED_TEXT_TO_ACTIVITY = [
   [/roll-?call|점호/i, 'rollcall'],
   [/취침|수면/, 'sleep'],
   [/기상|샤워|세면|정리/, 'wake'],
-  [/(^|\s)\d+\s*교시|수업|조회|종례/, 'school'],
   [/자습|공부|독서|스터디/, 'selfstudy'],
   [/식사|점심|저녁|간식|중식|석식|아침밥/, 'meal'],
   [/비교과|활동|동아리|운동|체육|봉사/, 'extra'],
   [/귀가|이동|등교|하교|외출/, 'move'],
 ];
 
-function schedTextToActivity(text) {
+/**
+ * 주간 일정표 칸 하나 → `{ id, label? }`.
+ *
+ * 학교 일과만 한 덩어리로 묶고, 나머지는 **적힌 말을 그대로** 이름표로 단다.
+ * 색과 분석은 활동(id)이 맡으므로 이름이 늘어도 팔레트는 그대로다.
+ */
+function schedTextToBlock(text) {
   const t = (text || '').trim();
   if (!t) return null;
-  for (const [re, id] of SCHED_TEXT_TO_ACTIVITY) if (re.test(t)) return id;
+  if (SCHED_SCHOOL_RE.test(t)) return { id: 'school' };
+  for (const [re, id] of SCHED_TEXT_TO_ACTIVITY) if (re.test(t)) return { id, label: t };
   // 규칙에 없으면 활동 이름이 글자 안에 있는지 본다 — 시간표에 직접 적은
   // "수학 학원" 같은 칸도 수학으로 넘어온다. 한 글자짜리 이름은 아무 데나
   // 걸리니 두 글자 이상만, 그중 가장 긴 이름을 고른다.
   const hit = (state.activities || [])
     .filter((a) => a.name && a.name.length >= 2 && t.includes(a.name))
     .sort((a, b) => b.name.length - a.name.length)[0];
-  return hit ? hit.id : null;
+  return hit ? { id: hit.id, label: t } : null;
 }
 
 /** [s,e) 중 아직 아무 블록도 없는 구간에만 activity 를 넣는다. */
@@ -520,8 +586,8 @@ function buildDefaultDayPlan(dateStr, week) {
 
   if (week && week.cells) {
     for (const slot of slotsOf(week)) {
-      const id = schedTextToActivity(week.cells[`${dow}_${slot.id}`]);
-      if (id) blocks = addBlock(blocks, slot.start, slot.end, id);
+      const hit = schedTextToBlock(week.cells[`${dow}_${slot.id}`]);
+      if (hit) blocks = addBlock(blocks, slot.start, slot.end, hit.id, hit.label);
     }
   }
 
@@ -617,8 +683,8 @@ function segLabel(b, r0, r1) {
 
   if (dur >= MIN_LABEL_MIN) {
     const [x, y] = polar(midR, midDeg);
-    return `<text class="seg-label" data-activity="${esc(b.activity)}" text-anchor="middle"` +
-           ` dominant-baseline="central" fill="${fill}" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(a.name)}</text>`;
+    return `<text class="seg-label" data-activity="${esc(b.activity)}" data-start="${b.start}" text-anchor="middle"` +
+           ` dominant-baseline="central" fill="${fill}" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(blockLabel(b))}</text>`;
   }
 
   // 가로로 넣기엔 좁다 — "세로"의 기준은 화면 상/하가 아니라 그 블록의
@@ -631,7 +697,7 @@ function segLabel(b, r0, r1) {
   // 오도록(=위→아래로 읽히도록) 한다.
   const rad = (midDeg * Math.PI) / 180;
   const risesInward = Math.cos(rad) > 0; // true면 바깥으로 갈수록 화면상 위로 향한다
-  const chars = Array.from(a.name);
+  const chars = Array.from(blockLabel(b));
   const radiusStep = 12;
   const tspans = chars.map((ch, i) => {
     const order = risesInward ? chars.length - 1 - i : i;
@@ -639,7 +705,7 @@ function segLabel(b, r0, r1) {
     const [x, y] = polar(rr, midDeg);
     return `<tspan x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(ch)}</tspan>`;
   }).join('');
-  return `<text class="seg-label seg-label-v" data-activity="${esc(b.activity)}" text-anchor="middle"` +
+  return `<text class="seg-label seg-label-v" data-activity="${esc(b.activity)}" data-start="${b.start}" text-anchor="middle"` +
          ` dominant-baseline="central" fill="${fill}">${tspans}</text>`;
 }
 
@@ -661,8 +727,8 @@ function segCallout(b, r0, r1) {
   const [tx, ty] = polar(R_CALLOUT_TEXT, midDeg);
   const line = `<line class="seg-callout-line" x1="${lx1.toFixed(1)}" y1="${ly1.toFixed(1)}"` +
                ` x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}" stroke="${a.color}"/>`;
-  const text = `<text class="seg-label seg-label-callout" data-activity="${esc(b.activity)}" text-anchor="middle"` +
-               ` dominant-baseline="central" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}">${esc(a.name)}</text>`;
+  const text = `<text class="seg-label seg-label-callout" data-activity="${esc(b.activity)}" data-start="${b.start}" text-anchor="middle"` +
+               ` dominant-baseline="central" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}">${esc(blockLabel(b))}</text>`;
   return line + text;
 }
 
@@ -848,7 +914,12 @@ function attachWheel(side) {
   svg.addEventListener('click', (ev) => {
     if (!editMode[side]) return;
     const label = ev.target.closest('.seg-label');
-    if (label) openActivityEditor(label.dataset.activity);
+    if (!label) return;
+    // 이름표가 붙은 블록은 **그 블록 이름만** 고친다. 눈에 보이는 걸 눌렀는데
+    // 다른 날 기록까지 바뀌면 놀란다 — 색은 팔레트의 ⚙ 관리에서 고친다.
+    const b = state[side].find((x) => x.start === Number(label.dataset.start));
+    if (b && (b.label || '').trim()) openBlockLabelEditor(side, b.start);
+    else openActivityEditor(label.dataset.activity);
   });
 
   svg.addEventListener('pointermove', (ev) => {
@@ -1090,7 +1161,7 @@ function renderBlocks(side) {
          <span class="ro-time">${minToStr(b.end % DAY)}</span>`;
     return `<div class="brow" data-i="${i}">
       <span class="sw" style="background:${esc(a.color)}"></span>
-      <span class="nm" title="${esc(a.name)}">${esc(a.name)}</span>
+      <span class="nm" title="${esc(blockLabel(b))}">${esc(blockLabel(b))}</span>
       ${times}
       <span class="dur">${fmtDur(b.end - b.start)}</span>
       ${editing ? '<button class="del" title="삭제">×</button>' : '<span class="del-sp"></span>'}
@@ -2912,6 +2983,14 @@ async function init() {
   $('todayBtn').onclick = () => load(todayStr());
   $('undoBtn').onclick = undo;
 
+  // 블록 이름표 편집
+  $('blockLabelCancel').onclick = closeBlockLabelEditor;
+  $('blockLabelSave').onclick = () => saveBlockLabel($('blockLabelName').value);
+  $('blockLabelReset').onclick = () => saveBlockLabel('');
+  $('blockLabelName').addEventListener('keydown', (e) => {
+    if (!isComposingKey(e) && e.key === 'Enter') saveBlockLabel(e.target.value);
+  });
+
   // 계획·실행 편집 잠금 토글
   $('editPlanBtn').onclick = () => setEditMode('plan', !editMode.plan);
   $('editActualBtn').onclick = () => setEditMode('actual', !editMode.actual);
@@ -3028,7 +3107,7 @@ async function init() {
     const weekOpen = !$('weekView').hidden;
     const editOpen = !$('editAct').hidden;
     const manageOpen = !$('manageAct').hidden;
-    const boardPops = ['subjEdit', 'itemEdit', 'taskEdit'].filter((id) => !$(id).hidden);
+    const boardPops = ['subjEdit', 'itemEdit', 'taskEdit', 'blockLabelEdit'].filter((id) => !$(id).hidden);
     const mod = e.metaKey || e.ctrlKey;
     const key = (e.key || '').toLowerCase();
 
