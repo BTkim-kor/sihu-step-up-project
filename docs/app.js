@@ -28,8 +28,14 @@ const DEFAULT_ACTIVITIES = [
   { id: 'biology', name: '생물', color: '#22A559', group: '공부' },
   { id: 'physics', name: '물리', color: '#0EA5E9', group: '공부' },
   { id: 'chemistry', name: '화학', color: '#D6409F', group: '공부' },
+  { id: 'selfstudy', name: '자습', color: '#A8C256', group: '공부' },
   { id: 'meal', name: '식사', color: '#F2B134', group: '생활' },
+  { id: 'school', name: '학교일정', color: '#6B7FA8', group: '생활' },
+  { id: 'extra', name: '비교과', color: '#E07A5F', group: '생활' },
   { id: 'hobby', name: '취미', color: '#F2994A', group: '생활' },
+  { id: 'wake', name: '기상/세면', color: '#7ECFC0', group: '생활' },
+  { id: 'rollcall', name: '점호', color: '#8D7B9E', group: '생활' },
+  { id: 'sleep', name: '수면', color: '#3F4A63', group: '생활' },
   { id: 'rest', name: '휴식', color: '#9AA5B1', group: '생활' },
   { id: 'move', name: '이동', color: '#C7CDD6', group: '생활' },
 ];
@@ -280,10 +286,21 @@ function switchFamily(idOrLink) {
 
 async function apiGetActivities() {
   const snap = await db.doc(`families/${FID}/meta/activities`).get();
-  const items = snap.exists ? snap.data().items : null;
-  if (Array.isArray(items) && items.length) return items;
-  await db.doc(`families/${FID}/meta/activities`).set({ items: DEFAULT_ACTIVITIES });
-  return DEFAULT_ACTIVITIES.slice();
+  const data = snap.exists ? snap.data() : null;
+  const items = data && Array.isArray(data.items) ? data.items : null;
+  if (!items || !items.length) {
+    await db.doc(`families/${FID}/meta/activities`).set({ items: DEFAULT_ACTIVITIES, seeded2: true });
+    return DEFAULT_ACTIVITIES.slice();
+  }
+
+  // 하루 기본값(수면·학교일정 등)에 쓰는 활동이 나중에 추가돼서, 이미 쓰던 가족에는
+  // 없다. 딱 한 번만 채워 넣는다 — `seeded2` 를 남겨 두면, 뒤에 사용자가 일부러
+  // 지운 활동이 다음 접속 때 되살아나지 않는다.
+  if (data.seeded2) return items;
+  const have = new Set(items.map((a) => a.id));
+  const merged = items.concat(DEFAULT_ACTIVITIES.filter((a) => !have.has(a.id)));
+  await db.doc(`families/${FID}/meta/activities`).set({ items: merged, seeded2: true });
+  return merged;
 }
 
 async function apiSaveActivities(list) {
@@ -291,6 +308,11 @@ async function apiSaveActivities(list) {
 }
 
 /** 최신 주가 먼저 오도록 정렬해서 돌려준다. */
+async function apiGetScheduleWeek(weekStartStr) {
+  const snap = await db.doc(`families/${FID}/scheduleWeeks/${weekStartStr}`).get();
+  return snap.exists ? snap.data() : null;
+}
+
 async function apiListScheduleWeeks() {
   const snap = await db.collection(`families/${FID}/scheduleWeeks`).orderBy('weekStart', 'desc').get();
   return snap.docs.map((d) => d.data());
@@ -416,6 +438,88 @@ function addBlock(blocks, s, e, activity) {
   const out = subtractRange(blocks, s, e);
   out.push({ start: s, end: e, activity });
   return normalize(out);
+}
+
+/* ------------------------------------------- 새 하루의 기본 계획 채우기 */
+
+/**
+ * 아무것도 적히지 않은 평일의 뼈대. 주간 일정표에 값이 있으면 그쪽이 이기고,
+ * 여기 있는 값은 **빈 시간대만** 메운다. 20:00~23:30 을 비워 둔 건 일부러다 —
+ * 저녁 자습을 무엇으로 채울지가 매일 계획을 세우는 이유이기 때문이다.
+ */
+const DAY_DEFAULT_TEMPLATE = [
+  [0, 420, 'sleep'],         // 0:00~7:00   수면
+  [420, 450, 'wake'],        // 7:00~7:30   기상 및 샤워
+  [450, 500, 'selfstudy'],   // 7:30~8:20   아침공부
+  [500, 530, 'meal'],        // 8:20~8:50   아침식사
+  [530, 1140, 'school'],     // 8:50~19:00  학교 일정 및 식사
+  [1140, 1200, 'extra'],     // 19:00~20:00 비교과 활동
+  [1410, 1430, 'wake'],      // 23:30~23:50 샤워 및 하루일과 정리
+  [1430, 1440, 'rollcall'],  // 23:50~24:00 Roll-Call
+];
+
+/**
+ * 주간 일정표 칸의 글자를 하루 계획표의 활동으로 옮긴다.
+ * 위에서 먼저 걸리는 규칙이 이긴다 — 기본값의 "Roll-Call / 취침"은 잠자리가
+ * 아니라 점호로 봐야 해서 취침보다 먼저 둔다.
+ */
+const SCHED_TEXT_TO_ACTIVITY = [
+  [/roll-?call|점호/i, 'rollcall'],
+  [/취침|수면/, 'sleep'],
+  [/기상|샤워|세면|정리/, 'wake'],
+  [/(^|\s)\d+\s*교시|수업|조회|종례/, 'school'],
+  [/자습|공부|독서|스터디/, 'selfstudy'],
+  [/식사|점심|저녁|간식|중식|석식|아침밥/, 'meal'],
+  [/비교과|활동|동아리|운동|체육|봉사/, 'extra'],
+  [/귀가|이동|등교|하교|외출/, 'move'],
+];
+
+function schedTextToActivity(text) {
+  const t = (text || '').trim();
+  if (!t) return null;
+  for (const [re, id] of SCHED_TEXT_TO_ACTIVITY) if (re.test(t)) return id;
+  return null;
+}
+
+/** [s,e) 중 아직 아무 블록도 없는 구간에만 activity 를 넣는다. */
+function fillFree(blocks, s, e, activity) {
+  const busy = blocks.filter((b) => b.end > s && b.start < e).sort((a, b) => a.start - b.start);
+  let out = blocks;
+  let cur = s;
+  for (const b of busy) {
+    if (b.start > cur) out = addBlock(out, cur, Math.min(b.start, e), activity);
+    cur = Math.max(cur, b.end);
+    if (cur >= e) break;
+  }
+  if (cur < e) out = addBlock(out, cur, e, activity);
+  return out;
+}
+
+/**
+ * 한 번도 저장한 적 없는 날에 채워 넣을 계획.
+ *
+ * 1) 그 주 주간 일정표에 적힌 그 요일 칸을 먼저 옮겨 온다(이쪽이 우선).
+ * 2) 평일이면 남은 빈 시간을 위 뼈대로 메운다.
+ *
+ * 토·일은 학교 일과가 없으니 뼈대를 쓰지 않는다 — 주간 일정표에 적어 둔 게
+ * 있으면 그것만 들어오고, 없으면 빈 계획으로 시작한다.
+ */
+function buildDefaultDayPlan(dateStr, week) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = SCHED_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];   // 월=0 … 일=6
+  let blocks = [];
+
+  if (week && week.cells) {
+    for (const slot of slotsOf(week)) {
+      const id = schedTextToActivity(week.cells[`${dow}_${slot.id}`]);
+      if (id) blocks = addBlock(blocks, slot.start, slot.end, id);
+    }
+  }
+
+  if (SCHED_WEEKDAYS.includes(dow)) {
+    for (const [s, e, id] of DAY_DEFAULT_TEMPLATE) blocks = fillFree(blocks, s, e, id);
+  }
+  return normalize(blocks);
 }
 
 function minutesOf(blocks, id) {
@@ -2703,10 +2807,21 @@ async function load(dateStr) {
   state.recent = Array.isArray(recent) ? recent : [];
   $('memo').value = state.memo;
 
+  // 한 번도 저장한 적 없는 날은 빈 원 대신 기본 계획을 깔아 준다.
+  // 아직 저장하지는 않는다 — 날짜를 넘겨보기만 해도 문서가 생기면 곤란하고,
+  // 시후가 한 칸이라도 고치는 순간 평소대로 자동 저장된다.
+  let seeded = false;
+  if (!day.updated_at && !state.plan.length) {
+    const week = await apiGetScheduleWeek(weekStart(dateStr)).catch(() => null);
+    const base = buildDefaultDayPlan(dateStr, week);
+    if (base.length) { state.plan = base; seeded = true; }
+  }
+
   lockBothSides();   // 날짜를 옮기면 다시 읽기 모드로 (renderAll 을 겸한다)
   renderAll();
   state.loading = false;
-  setSaveState(day.updated_at ? '저장됨' : '새 계획표', day.updated_at ? 'saved' : '');
+  if (day.updated_at) setSaveState('저장됨', 'saved');
+  else setSaveState(seeded ? '새 계획표 · 기본값 (아직 저장 안 됨)' : '새 계획표', '');
 }
 
 function indexActivities() {
