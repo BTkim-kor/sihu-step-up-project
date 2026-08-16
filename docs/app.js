@@ -211,6 +211,20 @@ function familyLink(fid) {
   return u.toString();
 }
 
+/**
+ * 한글·일본어를 조합하는 중에 온 키인가?
+ *
+ * 한글 "학"을 치는 도중 Enter 는 IME 에게 "이 글자로 확정"이라는 뜻이지
+ * "다음 칸으로"가 아니다. 이때 우리가 가로채서 커서를 옮겨 버리면, 뒤늦게
+ * 확정된 글자가 새로 포커스를 받은 칸에 찍힌다. 조합이 끝날 때까지 키를
+ * 흘려보내야 한다(확정 뒤 한 번 더 누르면 그때 넘어간다).
+ *
+ * `isComposing` 을 못 주는 브라우저를 위해 keyCode 229 도 함께 본다.
+ */
+function isComposingKey(e) {
+  return e.isComposing || e.keyCode === 229;
+}
+
 /** 링크나 코드를 붙여넣어도 코드만 뽑아낸다. */
 function extractFamilyId(text) {
   const v = (text || '').trim();
@@ -823,7 +837,9 @@ async function saveActivityEdit() {
 function wireActivityEditor() {
   $('editActSave').onclick = saveActivityEdit;
   $('editActCancel').onclick = closeActivityEditor;
-  $('editActName').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveActivityEdit(); });
+  $('editActName').addEventListener('keydown', (e) => {
+    if (!isComposingKey(e) && e.key === 'Enter') saveActivityEdit();
+  });
   $('editAct').addEventListener('click', (e) => { if (e.target.id === 'editAct') closeActivityEditor(); });
 }
 
@@ -1592,6 +1608,11 @@ function renderScheduleWeeks() {
   el.querySelectorAll('.sched-table input[data-keys]').forEach((inp) => {
     const original = inp.value;
     inp.addEventListener('keydown', (e) => {
+      // 한글을 조합하는 중에 누른 Enter 는 "글자 확정"이지 "다음 칸"이 아니다.
+      // 여기서 가로채 버리면 조합이 끝나기 전에 커서가 옮겨가서, 확정된
+      // 마지막 글자가 아래 칸에 찍힌다. IME 가 끝낼 때까지 그냥 흘려보낸다.
+      if (isComposingKey(e)) return;
+
       if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
 
       if (e.key === 'Enter') {
@@ -1702,6 +1723,7 @@ function renderScheduleWeeks() {
 
     inp.addEventListener('change', () => commitTime(inp));
     inp.addEventListener('keydown', (e) => {
+      if (isComposingKey(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
 
       if (e.key === 'Enter') {
@@ -2064,7 +2086,10 @@ function renderProgress() {
       renderProgress();
     };
     inp.onchange = commit;
-    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } };
+    inp.onkeydown = (e) => {
+      if (isComposingKey(e)) return;
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    };
   });
 }
 
@@ -2815,6 +2840,7 @@ async function init() {
   $('nextDay').title = '내일 (→)';
 
   document.addEventListener('keydown', (e) => {
+    if (isComposingKey(e)) return;   // 글자 조합 중에는 단축키로 가로채지 않는다
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const dayTabActive = !$('panelDay').hidden;
     const weekOpen = !$('weekView').hidden;
