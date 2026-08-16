@@ -1144,6 +1144,32 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .pg-rows { border-top: 1px solid var(--line); }
 .pg-none { padding: 14px 4px; font-size: 12.5px; color: var(--ink-3); }
 
+/* ---- 학습진도 현황판: 과목 하나 = 카드 하나 ----
+   교재가 여러 권씩 쌓이면 어디부터 어디까지가 한 과목인지 흐려진다.
+   카드로 묶고 위에 과목 색 띠를 둘러 경계를 분명히 한다.
+   (수행평가 탭도 .pg-sub 를 쓰므로 진도판으로 한정한다.) */
+#panelProgress .pg-sub {
+  margin-bottom: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--sub-c, var(--line-strong));
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+#panelProgress .pg-sub:last-child { margin-bottom: 0; }
+
+#panelProgress .pg-sub-head {
+  padding: 11px 16px;
+  background: var(--card-soft);
+  border-bottom: 1px solid var(--line);
+}
+#panelProgress .pg-sub-name { font-size: 14px; }
+
+#panelProgress .pg-rows { border-top: none; padding: 0 16px; }
+#panelProgress .pg-rows .pg-row:last-child { border-bottom: none; }
+#panelProgress .pg-none { padding: 14px 16px; }
+
 /* 한 항목 = 한 줄. 진행바·현재값·상태가 같은 열에 서도록 폭을 고정한다. */
 .pg-row {
   display: grid;
@@ -1210,6 +1236,15 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   user-select: none;
 }
 .pg-fold:hover { color: var(--ink); }
+
+/* 진도판에서는 카드 안에 들어가는 줄이라 따로 뜨지 않고 바닥에 붙는다 */
+#panelProgress .pg-fold {
+  margin-top: 0;
+  padding: 9px 16px;
+  border-radius: 0;
+  border-top: 1px solid var(--line);
+}
+#panelProgress .pg-fold + .pg-rows { border-top: 1px solid var(--line); }
 
 .pg-empty {
   display: flex;

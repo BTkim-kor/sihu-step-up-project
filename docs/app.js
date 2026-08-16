@@ -2013,7 +2013,7 @@ function renderProgress() {
     const meta = open.length
       ? `항목 ${open.length} · 평균 ${Math.round(open.reduce((a, it) => a + itemPace(it).pct, 0) / open.length)}%`
       : '진행 중인 항목 없음';
-    return `<section class="pg-sub">
+    return `<section class="pg-sub" style="--sub-c:${esc(s.color)}">
       <div class="pg-sub-head">
         <span class="pg-dot" style="background:${esc(s.color)}"></span>
         <span class="pg-sub-name">${esc(s.name)}</span>
