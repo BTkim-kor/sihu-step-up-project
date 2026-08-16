@@ -15,8 +15,10 @@
   </div>
 
   <nav class="app-tabs" role="tablist">
-    <button class="app-tab" id="tabBtnDay" role="tab" aria-selected="true">시후의 하루 계획표</button>
-    <button class="app-tab" id="tabBtnSchedule" role="tab" aria-selected="false">주간 일정표</button>
+    <button class="app-tab" data-tab="day" role="tab" aria-selected="true">하루 계획표</button>
+    <button class="app-tab" data-tab="schedule" role="tab" aria-selected="false">주간 일정표</button>
+    <button class="app-tab" data-tab="progress" role="tab" aria-selected="false">학습진도 현황판</button>
+    <button class="app-tab" data-tab="task" role="tab" aria-selected="false">수행평가<span class="tab-badge" id="taskBadge" hidden></span></button>
   </nav>
 
   <div class="tools">
@@ -165,6 +167,95 @@
     지난 주는 아래로 계속 남아 있어 언제든 다시 볼 수 있습니다.</p>
   <div class="week-body" id="scheduleWeeksList"></div>
 </section>
+
+<section class="tab-panel" id="panelProgress" hidden>
+  <div class="day-toolbar">
+    <div class="tools sched-toolbar">
+      <button class="ghost" id="progressManageSubjects">⚙ 과목 관리</button>
+    </div>
+  </div>
+  <p class="sched-intro">과목마다 끝내야 할 교재·부교재·단어장을 두고, 지금 어디까지 왔는지 기록합니다.
+    총 분량과 목표일을 정해두면 하루에 얼마나 해야 하는지, 이 속도면 목표일에 맞출 수 있는지 알려줍니다.</p>
+  <div class="pg-summary" id="progressSummary"></div>
+  <div id="progressList"></div>
+</section>
+
+<section class="tab-panel" id="panelTask" hidden>
+  <div class="day-toolbar">
+    <div class="tools sched-toolbar">
+      <button class="ghost" id="taskManageSubjects">⚙ 과목 관리</button>
+      <button class="primary" id="taskAddBtn">＋ 수행 추가</button>
+    </div>
+  </div>
+  <div class="pg-summary" id="taskDash"></div>
+  <div class="tk-alert" id="taskAlert" hidden></div>
+  <div class="tk-sortrow">
+    <button class="tk-sort is-on" data-sort="subject">과목별</button>
+    <button class="tk-sort" data-sort="due">기한순</button>
+  </div>
+  <div id="taskList"></div>
+</section>
+
+<div class="edit-act" id="subjEdit" hidden>
+  <div class="manage-act-card">
+    <div class="ma-head">
+      <h3>과목 관리</h3>
+      <button class="ghost sm" id="subjClose">닫기</button>
+    </div>
+    <p class="share-d">학습진도 현황판과 수행평가에서 함께 쓰는 과목 목록입니다.
+      하루 계획표의 활동과는 별개입니다.</p>
+    <div class="ma-list" id="subjList"></div>
+    <form class="addform ma-add" id="subjAddForm">
+      <input type="text" id="subjAddName" placeholder="새 과목 이름" maxlength="12" required>
+      <input type="color" id="subjAddColor" value="#7F77DD">
+      <button class="sm primary" type="submit">추가</button>
+    </form>
+  </div>
+</div>
+
+<div class="edit-act" id="itemEdit" hidden>
+  <div class="edit-act-card wide">
+    <h3 id="itemEditTitle">항목 추가</h3>
+    <div class="ie-grid">
+      <label class="ea-field"><span>과목</span><select id="itemSubject"></select></label>
+      <label class="ea-field"><span>종류</span><select id="itemKind">
+        <option value="교재">교재</option><option value="부교재">부교재</option>
+        <option value="단어">단어</option><option value="기타">기타</option>
+      </select></label>
+      <label class="ea-field span2"><span>이름</span><input type="text" id="itemName" maxlength="30" placeholder="쎈 수학 (상)"></label>
+      <label class="ea-field"><span>단위</span><select id="itemUnit">
+        <option>쪽</option><option>단원</option><option>강</option><option>문항</option><option>개</option>
+      </select></label>
+      <label class="ea-field"><span>총 분량</span><input type="number" id="itemTotal" min="1" placeholder="300"></label>
+      <label class="ea-field"><span>시작일</span><input type="date" id="itemStart"></label>
+      <label class="ea-field"><span>목표일</span><input type="date" id="itemDue"></label>
+    </div>
+    <div class="ea-actions">
+      <button class="ghost" id="itemDelete">삭제</button>
+      <span class="ie-spacer"></span>
+      <button class="ghost" id="itemCancel">취소</button>
+      <button class="primary" id="itemSave">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-act" id="taskEdit" hidden>
+  <div class="edit-act-card wide">
+    <h3 id="taskEditTitle">수행 추가</h3>
+    <div class="ie-grid">
+      <label class="ea-field"><span>과목</span><select id="taskSubject"></select></label>
+      <label class="ea-field"><span>제출 기한</span><input type="date" id="taskDue"></label>
+      <label class="ea-field span2"><span>제목</span><input type="text" id="taskTitle" maxlength="40" placeholder="실생활 함수 활용 보고서"></label>
+      <label class="ea-field span2"><span>내용</span><input type="text" id="taskNote" maxlength="60" placeholder="A4 2장, 그래프 포함"></label>
+    </div>
+    <div class="ea-actions">
+      <button class="ghost" id="taskDelete">삭제</button>
+      <span class="ie-spacer"></span>
+      <button class="ghost" id="taskCancel">취소</button>
+      <button class="primary" id="taskSave">저장</button>
+    </div>
+  </div>
+</div>
 
 <div class="week" id="weekView" hidden>
   <header class="week-top">

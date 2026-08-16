@@ -86,6 +86,17 @@ const SCHED_DEFAULT_FILLS = [
   [SCHED_DORM_DAYS, [26, 26], 'Roll-Call / 취침'],
 ];
 
+// 학습진도 현황판·수행평가가 함께 쓰는 과목 목록의 초기값.
+// 하루 계획표의 활동 목록과는 별개다(색만 같은 계열로 맞춰 뒀다).
+const DEFAULT_SUBJECTS = [
+  { id: 'sub_kor', name: '국어', color: '#378ADD' },
+  { id: 'sub_math', name: '수학', color: '#7F77DD' },
+  { id: 'sub_eng', name: '영어', color: '#D85A30' },
+  { id: 'sub_bio', name: '생물', color: '#1D9E75' },
+  { id: 'sub_phy', name: '물리', color: '#5DCAA5' },
+  { id: 'sub_che', name: '화학', color: '#D4537E' },
+];
+
 function buildDefaultScheduleCells() {
   const cells = {};
   for (const [days, [s0, s1], text] of SCHED_DEFAULT_FILLS) {
@@ -264,6 +275,48 @@ async function apiListScheduleWeeks() {
 }
 
 /** slots 는 시간 칸을 한 번이라도 고친 주에만 붙는다(안 고쳤으면 기본값을 쓴다). */
+/* --- 학습진도 현황판 · 수행평가 (둘이 과목 목록을 함께 쓴다) --- */
+
+async function apiGetSubjects() {
+  const snap = await db.doc(`families/${FID}/meta/subjects`).get();
+  const items = snap.exists ? snap.data().items : null;
+  if (Array.isArray(items)) return items;
+  await db.doc(`families/${FID}/meta/subjects`).set({ items: DEFAULT_SUBJECTS });
+  return DEFAULT_SUBJECTS.map((s) => ({ ...s }));
+}
+
+async function apiSaveSubjects(list) {
+  await db.doc(`families/${FID}/meta/subjects`).set({ items: list });
+}
+
+async function apiListProgressItems() {
+  const snap = await db.collection(`families/${FID}/progressItems`).get();
+  return snap.docs.map((d) => d.data());
+}
+
+async function apiSaveProgressItem(item) {
+  await db.doc(`families/${FID}/progressItems/${item.id}`)
+    .set({ ...item, updated_at: new Date().toISOString() });
+}
+
+async function apiDeleteProgressItem(id) {
+  await db.doc(`families/${FID}/progressItems/${id}`).delete();
+}
+
+async function apiListTasks() {
+  const snap = await db.collection(`families/${FID}/tasks`).get();
+  return snap.docs.map((d) => d.data());
+}
+
+async function apiSaveTask(task) {
+  await db.doc(`families/${FID}/tasks/${task.id}`)
+    .set({ ...task, updated_at: new Date().toISOString() });
+}
+
+async function apiDeleteTask(id) {
+  await db.doc(`families/${FID}/tasks/${id}`).delete();
+}
+
 async function apiDeleteScheduleWeek(weekStartStr) {
   await db.doc(`families/${FID}/scheduleWeeks/${weekStartStr}`).delete();
 }
@@ -1745,18 +1798,490 @@ async function addNewScheduleWeek() {
 }
 
 /**
- * 앱 맨 위 탭 전환. "하루 계획표"↔"주간 일정표"는 열고 닫는 오버레이가
- * 아니라, 같은 화면 안의 두 페이지를 오가는 개념이라 탭 버튼 자체가
- * 라우터 역할을 한다(뒤에 탭이 늘어나도 이 함수 하나로 처리된다).
+ * 앱 맨 위 탭 전환. 탭은 열고 닫는 오버레이가 아니라 같은 화면 안의 여러
+ * 페이지를 오가는 개념이라, 탭 버튼 자체가 라우터 역할을 한다. 탭을 더
+ * 늘리려면 아래 표에 한 줄만 보태면 된다.
  */
+const APP_TABS = {
+  day:      { panel: 'panelDay' },
+  schedule: { panel: 'panelSchedule', load: () => loadScheduleWeeks() },
+  progress: { panel: 'panelProgress', load: () => loadProgress() },
+  task:     { panel: 'panelTask',     load: () => loadTasks() },
+};
+
 async function switchTab(tab) {
-  const isDay = tab === 'day';
-  $('panelDay').hidden = !isDay;
-  $('panelSchedule').hidden = isDay;
-  $('tabBtnDay').setAttribute('aria-selected', String(isDay));
-  $('tabBtnSchedule').setAttribute('aria-selected', String(!isDay));
+  if (!APP_TABS[tab]) tab = 'day';
+  for (const [name, def] of Object.entries(APP_TABS)) {
+    $(def.panel).hidden = name !== tab;
+  }
+  document.querySelectorAll('.app-tab').forEach((b) => {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+  });
   window.scrollTo(0, 0);
-  if (!isDay) await loadScheduleWeeks(); // 다른 기기의 최신 내용을 매번 다시 받아온다
+  // 다른 기기에서 고친 최신 내용을 탭에 들어갈 때마다 다시 받아온다
+  if (APP_TABS[tab].load) await APP_TABS[tab].load();
+}
+
+/* ------------------------------------------- 과목 (진도판·수행평가 공용) */
+
+const board = { subjects: [], items: [], tasks: [], taskSort: 'subject', loaded: false };
+
+function subjOf(id) {
+  return board.subjects.find((s) => s.id === id) || { id, name: '기타', color: '#888780' };
+}
+
+async function loadSubjects() {
+  if (!board.subjects.length) board.subjects = await apiGetSubjects();
+  return board.subjects;
+}
+
+function openSubjectManager() {
+  $('subjEdit').hidden = false;
+  renderSubjectManager();
+}
+
+function renderSubjectManager() {
+  $('subjList').innerHTML = board.subjects.map((s, i) => `
+    <div class="ma-row">
+      <input type="color" value="${esc(s.color)}" data-sub="${esc(s.id)}" data-f="color">
+      <input type="text" value="${esc(s.name)}" maxlength="12" data-sub="${esc(s.id)}" data-f="name">
+      <button class="sm ghost" data-sub-up="${esc(s.id)}" ${i === 0 ? 'disabled' : ''}>↑</button>
+      <button class="sm ghost" data-sub-del="${esc(s.id)}">삭제</button>
+    </div>`).join('');
+
+  $('subjList').querySelectorAll('input').forEach((inp) => {
+    inp.onchange = () => {
+      const s = board.subjects.find((x) => x.id === inp.dataset.sub);
+      if (!s) return;
+      const v = inp.value.trim();
+      if (inp.dataset.f === 'name' && !v) { inp.value = s.name; return; }
+      s[inp.dataset.f] = inp.dataset.f === 'name' ? v : inp.value;
+      apiSaveSubjects(board.subjects);
+      renderProgress(); renderTasks();
+    };
+  });
+
+  $('subjList').querySelectorAll('[data-sub-up]').forEach((btn) => {
+    btn.onclick = () => {
+      const i = board.subjects.findIndex((x) => x.id === btn.dataset.subUp);
+      if (i <= 0) return;
+      [board.subjects[i - 1], board.subjects[i]] = [board.subjects[i], board.subjects[i - 1]];
+      apiSaveSubjects(board.subjects);
+      renderSubjectManager(); renderProgress(); renderTasks();
+    };
+  });
+
+  $('subjList').querySelectorAll('[data-sub-del]').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.subDel;
+      const used = board.items.filter((x) => x.subjectId === id).length
+                 + board.tasks.filter((x) => x.subjectId === id).length;
+      // 과목을 지우면 그 아래 항목이 갈 곳을 잃는다. 미리 알려주고 막는다.
+      if (used) { alert(`이 과목에 항목·수행이 ${used}개 있습니다.\n먼저 옮기거나 지운 뒤에 과목을 삭제하세요.`); return; }
+      if (!confirm(`'${subjOf(id).name}' 과목을 지울까요?`)) return;
+      board.subjects = board.subjects.filter((x) => x.id !== id);
+      apiSaveSubjects(board.subjects);
+      renderSubjectManager(); renderProgress(); renderTasks();
+    };
+  });
+}
+
+/* ------------------------------------------------- 학습진도 현황판 */
+
+/** 남은 날 대비 남은 분량으로 "이 속도면 며칠 빠름/늦음"을 계산한다. */
+function itemPace(it) {
+  const total = Number(it.total) || 0;
+  const cur = Math.min(Number(it.current) || 0, total);
+  const pct = total ? Math.round((cur / total) * 100) : 0;
+  const out = { pct, cur, total, done: total > 0 && cur >= total };
+  if (out.done || !it.dueDate) return out;
+
+  const today = todayStr();
+  const daysLeft = daysBetween(today, it.dueDate);
+  const left = total - cur;
+  out.daysLeft = daysLeft;
+  out.perDay = daysLeft > 0 ? Math.ceil(left / daysLeft) : left;
+
+  // 지금까지의 실제 속도로 남은 분량을 나눠 완료 예정일을 잡는다.
+  const start = it.startDate || today;
+  const elapsed = Math.max(1, daysBetween(start, today));
+  const speed = cur / elapsed;                 // 하루 평균
+  if (speed > 0) {
+    const needDays = Math.ceil(left / speed);
+    out.diff = daysLeft - needDays;            // +면 여유, -면 부족
+  }
+  return out;
+}
+
+function itemStatusChip(p) {
+  if (p.done) return '<span class="pg-chip is-done">완료</span>';
+  if (p.diff === undefined) return '<span class="pg-chip">기록 대기</span>';
+  if (p.daysLeft < 0) return '<span class="pg-chip is-late">기한 지남</span>';
+  if (p.diff >= 1) return `<span class="pg-chip is-ok">${p.diff}일 빠름</span>`;
+  if (p.diff <= -1) return `<span class="pg-chip is-late">${-p.diff}일 늦음</span>`;
+  return '<span class="pg-chip">일정대로</span>';
+}
+
+async function loadProgress() {
+  await loadSubjects();
+  board.items = await apiListProgressItems();
+  renderProgress();
+}
+
+function renderProgress() {
+  const el = $('progressList');
+  if (!el) return;
+
+  const live = board.items.filter((it) => !itemPace(it).done);
+  const doneCount = board.items.length - live.length;
+  const avg = live.length
+    ? Math.round(live.reduce((a, it) => a + itemPace(it).pct, 0) / live.length) : 0;
+  const behind = live.filter((it) => (itemPace(it).diff ?? 0) <= -1).length;
+
+  $('progressSummary').innerHTML = board.items.length ? `
+    <div class="pg-card"><div class="pg-k">진행 중</div><div class="pg-v">${live.length}권</div></div>
+    <div class="pg-card"><div class="pg-k">평균 달성률</div><div class="pg-v">${avg}%</div></div>
+    <div class="pg-card"><div class="pg-k">뒤처진 항목</div><div class="pg-v${behind ? ' is-warn' : ''}">${behind}건</div></div>
+    <div class="pg-card"><div class="pg-k">끝낸 교재</div><div class="pg-v">${doneCount}권</div></div>` : '';
+
+  const bySub = board.subjects
+    .map((s) => ({ s, list: board.items.filter((it) => it.subjectId === s.id) }))
+    .filter((g) => g.list.length);
+
+  if (!bySub.length) {
+    el.innerHTML = `<div class="pg-empty">
+      아직 등록한 교재가 없습니다.
+      <button class="primary sm" id="pgFirstAdd">＋ 첫 항목 추가</button>
+    </div>`;
+    const b = $('pgFirstAdd');
+    if (b) b.onclick = () => openItemEditor(null, board.subjects[0] && board.subjects[0].id);
+    return;
+  }
+
+  el.innerHTML = bySub.map(({ s, list }) => {
+    const open = list.filter((it) => !itemPace(it).done);
+    const fin = list.filter((it) => itemPace(it).done);
+    const rows = open.map((it) => progressRowHtml(it, s)).join('');
+    // 진행 중인 게 없으면 평균은 의미가 없다 — 0%도 100%도 거짓말이다
+    const meta = open.length
+      ? `항목 ${open.length} · 평균 ${Math.round(open.reduce((a, it) => a + itemPace(it).pct, 0) / open.length)}%`
+      : '진행 중인 항목 없음';
+    return `<section class="pg-sub">
+      <div class="pg-sub-head">
+        <span class="pg-dot" style="background:${esc(s.color)}"></span>
+        <span class="pg-sub-name">${esc(s.name)}</span>
+        <span class="pg-sub-meta">${meta}</span>
+        <button class="ghost sm" data-add-item="${esc(s.id)}">＋ 항목 추가</button>
+      </div>
+      <div class="pg-rows">${rows || '<div class="pg-none">진행 중인 항목이 없습니다</div>'}</div>
+      ${fin.length ? `<div class="pg-fold" data-fold-sub="${esc(s.id)}">
+        <span class="sc-chev">${progressFolded.has(s.id) ? '▸' : '▾'}</span>
+        <span>끝낸 항목 ${fin.length}개</span>
+      </div>${progressFolded.has(s.id) ? '' : `<div class="pg-rows">${fin.map((it) => progressRowHtml(it, s)).join('')}</div>`}` : ''}
+    </section>`;
+  }).join('');
+
+  el.querySelectorAll('[data-add-item]').forEach((b) => {
+    b.onclick = () => openItemEditor(null, b.dataset.addItem);
+  });
+  el.querySelectorAll('[data-fold-sub]').forEach((b) => {
+    b.onclick = () => {
+      const k = b.dataset.foldSub;
+      if (progressFolded.has(k)) progressFolded.delete(k); else progressFolded.add(k);
+      renderProgress();
+    };
+  });
+  el.querySelectorAll('[data-edit-item]').forEach((b) => {
+    b.onclick = () => openItemEditor(b.dataset.editItem);
+  });
+  el.querySelectorAll('input[data-cur]').forEach((inp) => {
+    const commit = () => {
+      const it = board.items.find((x) => x.id === inp.dataset.cur);
+      if (!it) return;
+      const v = Math.max(0, Math.min(Number(it.total) || 0, Math.round(Number(inp.value) || 0)));
+      if (v === it.current) { inp.value = it.current; return; }
+      it.current = v;
+      // 날짜별 진도를 남겨 둬야 "하루 평균 몇 쪽"을 계산할 수 있다
+      it.history = (it.history || []).filter((h) => h.date !== todayStr());
+      it.history.push({ date: todayStr(), value: v });
+      apiSaveProgressItem(it);
+      renderProgress();
+    };
+    inp.onchange = commit;
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } };
+  });
+}
+
+const progressFolded = new Set();
+
+function progressRowHtml(it, s) {
+  const p = itemPace(it);
+  const sub = p.done ? `${p.total}${esc(it.unit)} 완료`
+    : `${p.perDay ? `하루 ${p.perDay}${esc(it.unit)}` : ''}${it.dueDate ? ` · 목표 ${it.dueDate.slice(5).replace('-', '/')}` : ''}`;
+  return `<div class="pg-row${p.done ? ' is-done' : ''}">
+    <span class="pg-kind">${esc(it.kind)}</span>
+    <span class="pg-name" data-edit-item="${esc(it.id)}" title="눌러서 목표 고치기">${esc(it.name)}</span>
+    <span class="pg-bar"><span style="width:${p.pct}%; background:${esc(s.color)}"></span></span>
+    <span class="pg-num">
+      <input type="number" data-cur="${esc(it.id)}" value="${p.cur}" min="0" max="${p.total}" aria-label="${esc(it.name)} 현재 진도">
+      <span class="pg-den">/ ${p.total}${esc(it.unit)}</span>
+    </span>
+    ${itemStatusChip(p)}
+    <span class="pg-sub2">${sub}</span>
+  </div>`;
+}
+
+/* ------------------------------------------------------- 수행평가 */
+
+/** 오늘 기준 남은 날. 음수면 기한이 지났다. */
+function taskDays(t) {
+  return daysBetween(todayStr(), t.dueDate);
+}
+
+/** 급한 정도 — 낮을수록 급하다. 정렬과 색을 이 값 하나로 정한다. */
+function taskLevel(t) {
+  if (t.done) return 3;
+  const d = taskDays(t);
+  if (d < 0) return 0;      // 기한 지남
+  if (d <= 3) return 1;     // 사흘 안쪽
+  if (d <= 10) return 2;    // 열흘 안쪽
+  return 3;
+}
+
+const TASK_LEVEL_CLASS = ['is-over', 'is-soon', 'is-warn', ''];
+
+function taskDdayText(t) {
+  const d = taskDays(t);
+  if (d < 0) return `${-d}일 지남`;
+  if (d === 0) return 'D-day';
+  return `D-${d}`;
+}
+
+async function loadTasks() {
+  await loadSubjects();
+  board.tasks = await apiListTasks();
+  renderTasks();
+}
+
+/** 탭에 붙는 빨간 숫자 — 기한 지났거나 사흘 안쪽인 미제출 건수. */
+function urgentTaskCount() {
+  return board.tasks.filter((t) => !t.done && taskDays(t) <= 3).length;
+}
+
+function refreshTaskBadge() {
+  const el = $('taskBadge');
+  if (!el) return;
+  const n = urgentTaskCount();
+  el.textContent = n;
+  el.hidden = !n;
+}
+
+function renderTasks() {
+  const el = $('taskList');
+  if (!el) return;
+  refreshTaskBadge();
+
+  const open = board.tasks.filter((t) => !t.done).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+  const done = board.tasks.filter((t) => t.done)
+    .sort((a, b) => ((a.doneDate || '') > (b.doneDate || '') ? -1 : 1));
+
+  // 대시보드 — 미제출이 있는 과목만. 다 낸 과목까지 칸을 만들면 급한 게 묻힌다.
+  const groups = board.subjects
+    .map((s) => ({ s, list: open.filter((t) => t.subjectId === s.id) }))
+    .filter((g) => g.list.length)
+    .sort((a, b) => taskDays(a.list[0]) - taskDays(b.list[0]));
+
+  $('taskDash').innerHTML = groups.map(({ s, list }) => {
+    const head = list[0];
+    const lv = TASK_LEVEL_CLASS[taskLevel(head)];
+    return `<div class="pg-card tk-card ${lv}" data-goto="${esc(s.id)}">
+      <div class="pg-k"><span class="pg-dot" style="background:${esc(s.color)}"></span>${esc(s.name)}</div>
+      <div class="pg-v">${taskDdayText(head)}</div>
+      <div class="pg-k2">미제출 ${list.length}건</div>
+    </div>`;
+  }).join('');
+
+  const over = open.filter((t) => taskDays(t) < 0);
+  const soon = open.filter((t) => taskDays(t) >= 0 && taskDays(t) <= 3);
+  const alertEl = $('taskAlert');
+  alertEl.hidden = !(over.length || soon.length);
+  if (!alertEl.hidden) {
+    const names = [...over, ...soon].slice(0, 3)
+      .map((t) => `${subjOf(t.subjectId).name} ${t.title}`).join(' · ');
+    alertEl.innerHTML = `<span class="tk-alert-t">⚠ 기한 지남 ${over.length}건 · 3일 이내 ${soon.length}건</span>
+      <span class="tk-alert-d">${esc(names)}</span>`;
+  }
+
+  let body;
+  if (!open.length && !done.length) {
+    body = `<div class="pg-empty">등록된 수행평가가 없습니다.
+      <button class="primary sm" id="tkFirstAdd">＋ 첫 수행 추가</button></div>`;
+  } else if (board.taskSort === 'due') {
+    body = `<div class="tk-rows">${open.map(taskRowHtml).join('') || '<div class="pg-none">미제출 수행이 없습니다</div>'}</div>`;
+  } else {
+    body = groups.map(({ s, list }) => `
+      <section class="pg-sub" id="tksub-${esc(s.id)}">
+        <div class="pg-sub-head">
+          <span class="pg-dot" style="background:${esc(s.color)}"></span>
+          <span class="pg-sub-name">${esc(s.name)}</span>
+          <span class="tk-badge ${TASK_LEVEL_CLASS[taskLevel(list[0])]}">${taskDdayText(list[0])}</span>
+          <span class="pg-sub-meta">${list.length}건</span>
+        </div>
+        <div class="tk-rows">${list.map(taskRowHtml).join('')}</div>
+      </section>`).join('')
+      || '<div class="pg-none">미제출 수행이 없습니다</div>';
+  }
+
+  const foldOpen = !taskDoneFolded;
+  body += done.length ? `
+    <div class="pg-fold" id="tkDoneFold">
+      <span class="sc-chev">${foldOpen ? '▾' : '▸'}</span>
+      <span>제출 완료 ${done.length}건</span>
+    </div>
+    ${foldOpen ? `<div class="tk-rows">${done.map(taskRowHtml).join('')}</div>` : ''}` : '';
+
+  el.innerHTML = body;
+
+  el.querySelectorAll('[data-task-done]').forEach((b) => {
+    b.onclick = () => {
+      const t = board.tasks.find((x) => x.id === b.dataset.taskDone);
+      if (!t) return;
+      t.done = !t.done;
+      t.doneDate = t.done ? todayStr() : '';
+      apiSaveTask(t);
+      renderTasks();
+    };
+  });
+  el.querySelectorAll('[data-task-edit]').forEach((b) => {
+    b.onclick = () => openTaskEditor(b.dataset.taskEdit);
+  });
+  const f = $('tkDoneFold');
+  if (f) f.onclick = () => { taskDoneFolded = !taskDoneFolded; renderTasks(); };
+  const fa = $('tkFirstAdd');
+  if (fa) fa.onclick = () => openTaskEditor(null);
+
+  $('taskDash').querySelectorAll('[data-goto]').forEach((c) => {
+    c.onclick = () => {
+      const sec = $(`tksub-${c.dataset.goto}`);
+      if (sec) sec.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    };
+  });
+}
+
+let taskDoneFolded = false;
+
+function taskRowHtml(t) {
+  const s = subjOf(t.subjectId);
+  const lv = TASK_LEVEL_CLASS[taskLevel(t)];
+  if (t.done) {
+    return `<div class="tk-row is-done">
+      <span class="tk-check">✓</span>
+      <span class="tk-title" data-task-edit="${esc(t.id)}">${esc(s.name)} · ${esc(t.title)}</span>
+      <span class="tk-when">${t.doneDate ? `${t.doneDate.slice(5).replace('-', '/')} 제출` : '제출함'}</span>
+      <button class="ghost sm" data-task-done="${esc(t.id)}">되돌리기</button>
+    </div>`;
+  }
+  const dow = ['일', '월', '화', '수', '목', '금', '토'][new Date(t.dueDate + 'T00:00').getDay()];
+  return `<div class="tk-row ${lv}">
+    <span class="tk-main" data-task-edit="${esc(t.id)}" title="눌러서 고치기">
+      <span class="tk-title">${esc(t.title)}</span>
+      ${t.note ? `<span class="tk-note">${esc(t.note)}</span>` : ''}
+    </span>
+    <span class="tk-when">${t.dueDate.slice(5).replace('-', '/')}(${dow})</span>
+    <span class="tk-dday ${lv}">${taskDdayText(t)}</span>
+    <button class="ghost sm" data-task-done="${esc(t.id)}">제출</button>
+  </div>`;
+}
+
+/* ------------------------------------------------- 항목·수행 편집창 */
+
+let editingItemId = null;
+let editingTaskId = null;
+
+function fillSubjectSelect(sel, chosen) {
+  sel.innerHTML = board.subjects.map((s) =>
+    `<option value="${esc(s.id)}"${s.id === chosen ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+}
+
+function openItemEditor(id, presetSubject) {
+  if (!board.subjects.length) { alert('먼저 과목을 하나 이상 추가하세요.'); return; }
+  editingItemId = id;
+  const it = id ? board.items.find((x) => x.id === id) : null;
+  $('itemEditTitle').textContent = it ? '항목 수정' : '항목 추가';
+  fillSubjectSelect($('itemSubject'), it ? it.subjectId : presetSubject);
+  $('itemKind').value = it ? it.kind : '교재';
+  $('itemName').value = it ? it.name : '';
+  $('itemUnit').value = it ? it.unit : '쪽';
+  $('itemTotal').value = it ? it.total : '';
+  $('itemStart').value = it ? (it.startDate || '') : todayStr();
+  $('itemDue').value = it ? (it.dueDate || '') : '';
+  $('itemDelete').hidden = !it;
+  $('itemEdit').hidden = false;
+  $('itemName').focus();
+}
+
+async function saveItemEditor() {
+  const name = $('itemName').value.trim();
+  const total = Math.round(Number($('itemTotal').value) || 0);
+  if (!name) { alert('이름을 입력하세요.'); return; }
+  if (total <= 0) { alert('총 분량을 1 이상으로 입력하세요.'); return; }
+  const due = $('itemDue').value;
+  const start = $('itemStart').value || todayStr();
+  if (due && daysBetween(start, due) < 0) { alert('목표일이 시작일보다 빠릅니다.'); return; }
+
+  const old = editingItemId ? board.items.find((x) => x.id === editingItemId) : null;
+  const it = {
+    id: editingItemId || `pi_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    subjectId: $('itemSubject').value,
+    kind: $('itemKind').value,
+    name,
+    unit: $('itemUnit').value,
+    total,
+    current: old ? Math.min(old.current || 0, total) : 0,
+    startDate: start,
+    dueDate: due,
+    history: old ? (old.history || []) : [],
+  };
+  await apiSaveProgressItem(it);
+  if (old) Object.assign(old, it); else board.items.push(it);
+  $('itemEdit').hidden = true;
+  renderProgress();
+}
+
+function openTaskEditor(id) {
+  if (!board.subjects.length) { alert('먼저 과목을 하나 이상 추가하세요.'); return; }
+  editingTaskId = id;
+  const t = id ? board.tasks.find((x) => x.id === id) : null;
+  $('taskEditTitle').textContent = t ? '수행 수정' : '수행 추가';
+  fillSubjectSelect($('taskSubject'), t ? t.subjectId : undefined);
+  $('taskTitle').value = t ? t.title : '';
+  $('taskNote').value = t ? (t.note || '') : '';
+  $('taskDue').value = t ? t.dueDate : '';
+  $('taskDelete').hidden = !t;
+  $('taskEdit').hidden = false;
+  $('taskTitle').focus();
+}
+
+async function saveTaskEditor() {
+  const title = $('taskTitle').value.trim();
+  const due = $('taskDue').value;
+  if (!title) { alert('제목을 입력하세요.'); return; }
+  if (!due) { alert('제출 기한을 입력하세요.'); return; }
+
+  const old = editingTaskId ? board.tasks.find((x) => x.id === editingTaskId) : null;
+  const t = {
+    id: editingTaskId || `tk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    subjectId: $('taskSubject').value,
+    title,
+    note: $('taskNote').value.trim(),
+    dueDate: due,
+    done: old ? !!old.done : false,
+    doneDate: old ? (old.doneDate || '') : '',
+  };
+  await apiSaveTask(t);
+  if (old) Object.assign(old, t); else board.tasks.push(t);
+  $('taskEdit').hidden = true;
+  renderTasks();
 }
 
 function miniWheel(d) {
@@ -2154,8 +2679,56 @@ async function init() {
   $('weekThis').onclick = () => openWeek(weekStart(todayStr()));
 
   // 상단 탭
-  $('tabBtnDay').onclick = () => switchTab('day');
-  $('tabBtnSchedule').onclick = () => switchTab('schedule');
+  document.querySelectorAll('.app-tab').forEach((b) => {
+    b.onclick = () => switchTab(b.dataset.tab);
+  });
+
+  // 과목 관리 (진도판·수행평가 공용)
+  $('progressManageSubjects').onclick = openSubjectManager;
+  $('taskManageSubjects').onclick = openSubjectManager;
+  $('subjClose').onclick = () => { $('subjEdit').hidden = true; };
+  $('subjAddForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('subjAddName').value.trim();
+    if (!name) return;
+    board.subjects.push({
+      id: `sub_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+      name, color: $('subjAddColor').value,
+    });
+    await apiSaveSubjects(board.subjects);
+    $('subjAddName').value = '';
+    renderSubjectManager(); renderProgress(); renderTasks();
+  };
+
+  // 학습진도 현황판
+  $('itemCancel').onclick = () => { $('itemEdit').hidden = true; };
+  $('itemSave').onclick = saveItemEditor;
+  $('itemDelete').onclick = async () => {
+    if (!editingItemId || !confirm('이 항목을 지울까요?\n기록한 진도도 함께 사라집니다.')) return;
+    await apiDeleteProgressItem(editingItemId);
+    board.items = board.items.filter((x) => x.id !== editingItemId);
+    $('itemEdit').hidden = true;
+    renderProgress();
+  };
+
+  // 수행평가
+  $('taskAddBtn').onclick = () => openTaskEditor(null);
+  $('taskCancel').onclick = () => { $('taskEdit').hidden = true; };
+  $('taskSave').onclick = saveTaskEditor;
+  $('taskDelete').onclick = async () => {
+    if (!editingTaskId || !confirm('이 수행을 지울까요?')) return;
+    await apiDeleteTask(editingTaskId);
+    board.tasks = board.tasks.filter((x) => x.id !== editingTaskId);
+    $('taskEdit').hidden = true;
+    renderTasks();
+  };
+  document.querySelectorAll('.tk-sort').forEach((b) => {
+    b.onclick = () => {
+      board.taskSort = b.dataset.sort;
+      document.querySelectorAll('.tk-sort').forEach((x) => x.classList.toggle('is-on', x === b));
+      renderTasks();
+    };
+  });
 
   // 주간 일정표
   $('scheduleAddWeek').onclick = addNewScheduleWeek;
@@ -2173,13 +2746,19 @@ async function init() {
     const weekOpen = !$('weekView').hidden;
     const editOpen = !$('editAct').hidden;
     const manageOpen = !$('manageAct').hidden;
+    const boardPops = ['subjEdit', 'itemEdit', 'taskEdit'].filter((id) => !$(id).hidden);
     const mod = e.metaKey || e.ctrlKey;
     const key = (e.key || '').toLowerCase();
 
+    if (key === 'escape' && boardPops.length) {
+      e.preventDefault();
+      boardPops.forEach((id) => { $(id).hidden = true; });
+      return;
+    }
     if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
     if (key === 'escape' && manageOpen) { e.preventDefault(); closeActivityManager(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
-    if (editOpen || manageOpen || (!dayTabActive && typing)) return;
+    if (editOpen || manageOpen || boardPops.length || (!dayTabActive && typing)) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
     if (mod && key === 'z' && !typing && dayTabActive && !weekOpen) { e.preventDefault(); undo(); return; }
@@ -2200,6 +2779,14 @@ async function init() {
   });
 
   await load(todayStr());
+
+  // 수행평가는 다른 탭에 있어도 탭 배지로 알려야 하므로 시작할 때 한 번 읽는다.
+  // (진도판은 그 탭에 들어갈 때 읽어도 늦지 않다.)
+  loadSubjects()
+    .then(() => apiListTasks())
+    .then((list) => { board.tasks = list; refreshTaskBadge(); })
+    .catch(() => {});
+
   setInterval(() => { if (state.date === todayStr()) renderWheel('actual'); }, 60000);
 }
 
