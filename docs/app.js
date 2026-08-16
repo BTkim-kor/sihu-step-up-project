@@ -34,6 +34,60 @@ const DEFAULT_ACTIVITIES = [
   { id: 'move', name: '이동', color: '#C7CDD6', group: '생활' },
 ];
 
+/* ------------------------------------------------------------ 주간 일정표 */
+// 매주 새로 만들 때마다 채워지는 고정 시간표(기숙사/학교 일과 기준 기본값).
+// 계획·실행 원그래프와는 완전히 별개의 데이터(요일 × 시간 칸 텍스트)다.
+
+const SCHED_DAYS = ['월', '화', '수', '목', '금', '토', '일'];
+const SCHED_WEEKDAYS = ['월', '화', '수', '목', '금'];
+
+const SCHED_SLOTS = [
+  420, 450, 480, 500, 530, 540, 570, 600, 630, 660, 690, 720, 750, 770, 810,
+  840, 870, 900, 930, 960, 990, 1020, 1050, 1070, 1110, 1140, 1170, 1200,
+  1220, 1250, 1290, 1320, 1350, 1380, 1430, 1440,
+].reduce((acc, m, i, arr) => {
+  if (i < arr.length - 1) acc.push({ id: String(m), start: m, end: arr[i + 1] });
+  return acc;
+}, []).map((s) => ({ ...s, label: `${schedClock(s.start)}~${schedClock(s.end)}` }));
+
+function schedClock(m) {
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// [적용 요일들, [시작 슬롯 인덱스, 끝 슬롯 인덱스], 칸에 들어갈 글자] — 이미지 그대로 옮김
+const SCHED_DEFAULT_FILLS = [
+  [SCHED_WEEKDAYS, [0, 0], '기상/샤워'],
+  [SCHED_WEEKDAYS, [1, 2], '아침공부'],
+  [SCHED_WEEKDAYS, [3, 3], '아침식사'],
+  [SCHED_WEEKDAYS, [4, 4], '아침조회'],
+  [SCHED_WEEKDAYS, [5, 6], '1교시'],
+  [SCHED_WEEKDAYS, [7, 8], '2교시'],
+  [SCHED_WEEKDAYS, [9, 10], '3교시'],
+  [['월', '수', '금'], [11, 12], '4교시(자습)'],
+  [['화', '목'], [11, 12], '4교시'],
+  [SCHED_WEEKDAYS, [13, 14], '점심시간'],
+  [SCHED_WEEKDAYS, [15, 16], '5교시'],
+  [SCHED_WEEKDAYS, [17, 18], '6교시'],
+  [['화'], [19, 20], '7교시'],
+  [SCHED_WEEKDAYS, [22, 22], '종례'],
+  [SCHED_WEEKDAYS, [23, 24], '저녁시간'],
+  [['월', '화', '수', '목'], [25, 26], '비교과 활동'],
+  [['금'], [25, 26], '귀가'],
+  [SCHED_WEEKDAYS, [28, 28], '간식타임'],
+  [SCHED_WEEKDAYS, [33, 33], '샤워 및 하루일과 정리'],
+  [SCHED_WEEKDAYS, [34, 34], 'Roll-Call / 취침'],
+];
+
+function buildDefaultScheduleCells() {
+  const cells = {};
+  for (const [days, [s0, s1], text] of SCHED_DEFAULT_FILLS) {
+    for (const day of days) {
+      for (let i = s0; i <= s1; i++) cells[`${day}_${SCHED_SLOTS[i].id}`] = text;
+    }
+  }
+  return cells;
+}
+
 /* ---------------------------------------------------------------- utils */
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -193,6 +247,18 @@ async function apiGetActivities() {
 
 async function apiSaveActivities(list) {
   await db.doc(`families/${FID}/meta/activities`).set({ items: list });
+}
+
+/** 최신 주가 먼저 오도록 정렬해서 돌려준다. */
+async function apiListScheduleWeeks() {
+  const snap = await db.collection(`families/${FID}/scheduleWeeks`).orderBy('weekStart', 'desc').get();
+  return snap.docs.map((d) => d.data());
+}
+
+async function apiSaveScheduleWeek(weekStartStr, cells) {
+  await db.doc(`families/${FID}/scheduleWeeks/${weekStartStr}`).set({
+    weekStart: weekStartStr, cells, updated_at: new Date().toISOString(),
+  });
 }
 
 async function apiGetDay(date) {
@@ -1002,6 +1068,109 @@ function closeWeek() {
   document.body.style.overflow = '';
 }
 
+/* -------------------------------------------------------------- 주간 일정표 */
+// 원그래프로 계획을 그리는 것과는 별개로, 매주 반복되는 요일×시간 시간표를
+// 표 형식으로 세워두는 화면. 새 주를 만들 때마다 학교 일과 기본값을 채워
+// 넣고, 지난 주는 지우지 않고 아래로 계속 쌓아 언제든 다시 볼 수 있게 한다.
+
+const schedule = { weeks: [], loaded: false }; // [{weekStart, cells}], 최신 주부터
+const scheduleSaveTimers = {};
+
+async function loadScheduleWeeks() {
+  schedule.weeks = await apiListScheduleWeeks();
+  if (!schedule.weeks.length) {
+    const ws = weekStart(todayStr());
+    const cells = buildDefaultScheduleCells();
+    await apiSaveScheduleWeek(ws, cells);
+    schedule.weeks = [{ weekStart: ws, cells }];
+  }
+  schedule.loaded = true;
+  renderScheduleWeeks();
+}
+
+function scheduleTableHtml(weekStartStr, cells) {
+  const head = `<tr><th class="sc-time">시간</th>${SCHED_DAYS.map((d) => `<th>${d}요일</th>`).join('')}</tr>`;
+  const body = SCHED_SLOTS.map((slot) => {
+    const cols = SCHED_DAYS.map((day) => {
+      const key = `${day}_${slot.id}`;
+      const val = cells[key] || '';
+      return `<td class="${val ? 'sc-filled' : ''}"><input type="text" maxlength="20"` +
+             ` data-week="${esc(weekStartStr)}" data-key="${esc(key)}" value="${esc(val)}"></td>`;
+    }).join('');
+    return `<tr><td class="sc-time">${slot.label}</td>${cols}</tr>`;
+  }).join('');
+  return `<div class="sched-table-wrap"><table class="sched-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+/** a→b 날짜 차이(일). "YYYY-MM-DD" 문자열을 로컬 자정 기준으로 비교한다. */
+function daysBetween(a, b) {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
+}
+
+function scheduleWeekBadge(weekStartStr) {
+  const diffWeeks = Math.round(daysBetween(weekStart(todayStr()), weekStartStr) / 7);
+  if (diffWeeks === 0) return '이번 주';
+  return diffWeeks > 0 ? `${diffWeeks}주 후` : `${-diffWeeks}주 전`;
+}
+
+function renderScheduleWeeks() {
+  const el = $('scheduleWeeksList');
+  el.innerHTML = schedule.weeks.map((w) => {
+    const end = shiftDate(w.weekStart, 6);
+    const [sy, sm, sd] = w.weekStart.split('-').map(Number);
+    const [, em, ed] = end.split('-').map(Number);
+    return `<section class="sched-week">
+      <div class="sched-week-head">
+        <span>${sy}. ${sm}. ${sd}. – ${em}. ${ed}.</span>
+        <span class="sub">${scheduleWeekBadge(w.weekStart)}</span>
+      </div>
+      ${scheduleTableHtml(w.weekStart, w.cells)}
+    </section>`;
+  }).join('');
+
+  el.querySelectorAll('.sched-table input').forEach((inp) => {
+    inp.addEventListener('change', (e) => {
+      const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
+      if (!w) return;
+      const val = e.target.value.trim();
+      if (val) w.cells[inp.dataset.key] = val; else delete w.cells[inp.dataset.key];
+      e.target.closest('td').classList.toggle('sc-filled', !!val);
+      scheduleSaveDebounced(w.weekStart);
+    });
+  });
+}
+
+function scheduleSaveDebounced(weekStartStr) {
+  clearTimeout(scheduleSaveTimers[weekStartStr]);
+  scheduleSaveTimers[weekStartStr] = setTimeout(() => {
+    const w = schedule.weeks.find((x) => x.weekStart === weekStartStr);
+    if (w) apiSaveScheduleWeek(w.weekStart, w.cells);
+  }, 700);
+}
+
+async function addNewScheduleWeek() {
+  const latest = schedule.weeks[0];
+  const nextStart = latest ? shiftDate(latest.weekStart, 7) : weekStart(todayStr());
+  if (schedule.weeks.some((w) => w.weekStart === nextStart)) return;
+  const cells = buildDefaultScheduleCells();
+  await apiSaveScheduleWeek(nextStart, cells);
+  schedule.weeks.unshift({ weekStart: nextStart, cells });
+  renderScheduleWeeks();
+}
+
+async function openSchedule() {
+  $('scheduleView').hidden = false;
+  document.body.style.overflow = 'hidden';
+  await loadScheduleWeeks();
+}
+
+function closeSchedule() {
+  $('scheduleView').hidden = true;
+  document.body.style.overflow = '';
+}
+
 function miniWheel(d) {
   let s = '<svg viewBox="0 0 400 400">';
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="var(--card-soft)"/>`;
@@ -1396,6 +1565,11 @@ async function init() {
   $('weekNext').onclick = () => openWeek(shiftDate(week.start, 7));
   $('weekThis').onclick = () => openWeek(weekStart(todayStr()));
 
+  // 주간 일정표
+  $('scheduleBtn').onclick = openSchedule;
+  $('scheduleClose').onclick = closeSchedule;
+  $('scheduleAddWeek').onclick = addNewScheduleWeek;
+
   // 단축키 — ⌘(macOS) / Ctrl(Windows·Linux) 양쪽 모두 동작한다
   $('saveBtn').title = `지금 저장 (${MOD}S)`;
   $('undoBtn').title = `되돌리기 (${MOD}Z)`;
@@ -1406,6 +1580,7 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const weekOpen = !$('weekView').hidden;
+    const scheduleOpen = !$('scheduleView').hidden;
     const editOpen = !$('editAct').hidden;
     const manageOpen = !$('manageAct').hidden;
     const mod = e.metaKey || e.ctrlKey;
@@ -1413,17 +1588,18 @@ async function init() {
 
     if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
     if (key === 'escape' && manageOpen) { e.preventDefault(); closeActivityManager(); return; }
+    if (key === 'escape' && scheduleOpen) { e.preventDefault(); closeSchedule(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
-    if (editOpen || manageOpen) return;
+    if (editOpen || manageOpen || (scheduleOpen && typing)) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
-    if (mod && key === 'z' && !typing && !weekOpen) { e.preventDefault(); undo(); return; }
+    if (mod && key === 'z' && !typing && !weekOpen && !scheduleOpen) { e.preventDefault(); undo(); return; }
     if (mod && key === 'w') {                        // 브라우저 탭 닫기는 막지 못할 수 있다
       e.preventDefault();
       weekOpen ? closeWeek() : openWeek();
       return;
     }
-    if (typing || mod || e.altKey) return;
+    if (scheduleOpen || typing || mod || e.altKey) return;
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();

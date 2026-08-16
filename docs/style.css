@@ -103,8 +103,10 @@ body {
 
 .tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px 10px;
   margin-left: auto;
 }
 
@@ -604,7 +606,7 @@ button.primary {
 button.primary:hover { background: var(--accent); border-color: transparent; filter: brightness(1.07); }
 button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 
-.week {
+.week, .schedule {
   position: fixed;
   inset: 0;
   z-index: 90;
@@ -612,7 +614,7 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   background: var(--bg-grad), var(--bg);
   animation: fade .2s ease;
 }
-.week[hidden] { display: none; }
+.week[hidden], .schedule[hidden] { display: none; }
 
 .week-top {
   position: sticky;
@@ -773,6 +775,92 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .onboard-card p { margin: 0 0 18px; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
 .onboard-card .share-row { margin-bottom: 16px; }
 .onboard-card .share-row input { text-align: center; }
+
+/* ---------- 주간 일정표 ---------- */
+
+.sched-intro {
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 0 26px 18px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.sched-week { margin-bottom: 30px; }
+.sched-week:last-child { margin-bottom: 0; }
+
+.sched-week-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  padding: 12px 16px;
+}
+.sched-week-head .sub { font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+
+.sched-table-wrap {
+  overflow-x: auto;
+  border-radius: 0 0 14px 14px;
+  border: 1px solid var(--line);
+  border-top: none;
+  box-shadow: var(--shadow);
+}
+
+.sched-table {
+  width: 100%;
+  min-width: 660px;
+  border-collapse: collapse;
+  background: var(--card);
+  font-size: 12px;
+}
+.sched-table th, .sched-table td {
+  border: 1px solid var(--line);
+  padding: 0;
+  text-align: center;
+}
+.sched-table th {
+  padding: 8px 4px;
+  background: var(--card-soft);
+  font-weight: 700;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.sched-table .sc-time {
+  width: 88px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  font-size: 10.8px;
+  background: var(--card-soft);
+  white-space: nowrap;
+  padding: 0 8px;
+}
+.sched-table td.sc-filled { background: var(--card-soft); }
+.sched-table input {
+  width: 100%;
+  height: 30px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink);
+  text-align: center;
+  padding: 0 3px;
+}
+.sched-table input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--card);
+  position: relative;
+  z-index: 1;
+}
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 9px; border: 2px solid var(--card); }

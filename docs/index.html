@@ -27,6 +27,7 @@
     <button id="saveBtn" class="primary">저장</button>
     <button class="ghost" id="undoBtn">↺ 되돌리기</button>
     <button class="ghost" id="weekBtn">주간 요약</button>
+    <button class="ghost" id="scheduleBtn">📋 주간 일정표</button>
 
     <div class="share-wrap">
       <button class="ghost" id="shareBtn">🔗 공유</button>
@@ -141,6 +142,19 @@
     </div>
   </div>
 </section>
+
+<div class="schedule" id="scheduleView" hidden>
+  <header class="week-top">
+    <div class="brand"><span class="brand-mark"></span><span>주간 일정표</span></div>
+    <div class="tools">
+      <button class="ghost" id="scheduleAddWeek">＋ 새 주</button>
+      <button class="ghost" id="scheduleClose">✕ 닫기</button>
+    </div>
+  </header>
+  <p class="sched-intro">매주 이 형식으로 계획을 세웁니다. 칸을 눌러 바로 고치세요.
+    지난 주는 아래로 계속 남아 있어 언제든 다시 볼 수 있습니다.</p>
+  <div class="week-body" id="scheduleWeeksList"></div>
+</div>
 
 <div class="week" id="weekView" hidden>
   <header class="week-top">
