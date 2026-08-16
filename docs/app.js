@@ -536,12 +536,14 @@ function renderPalette(side) {
   }
   s += `<button class="pal eraser" data-act="${ERASER}" aria-pressed="${state.sel[side] === ERASER}" style="--pal-color:var(--ink-3)"><span class="sw"></span>지우개</button>`;
   s += `<button class="pal pal-add" data-add="1">＋ 활동</button>`;
+  s += `<button class="pal pal-manage" data-manage="1">⚙ 관리</button>`;
   el.innerHTML = s;
 
   el.querySelectorAll('[data-act]').forEach((b) => {
     b.onclick = () => { state.sel[side] = b.dataset.act; renderPalette(side); updateNowBtn(); };
   });
   el.querySelector('[data-add]').onclick = () => showAddForm(el, side);
+  el.querySelector('[data-manage]').onclick = openActivityManager;
 }
 
 function showAddForm(el, side) {
@@ -612,6 +614,78 @@ function wireActivityEditor() {
   $('editActCancel').onclick = closeActivityEditor;
   $('editActName').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveActivityEdit(); });
   $('editAct').addEventListener('click', (e) => { if (e.target.id === 'editAct') closeActivityEditor(); });
+}
+
+/* --------------------------------------------------------- 활동 목록 관리 */
+// 블록을 먼저 그리지 않아도, 활동을 통째로 추가·이름변경·삭제할 수 있는 목록.
+
+function renderActivityManager() {
+  const el = $('manageActList');
+  el.innerHTML = state.activities.map((a) => `
+    <div class="ma-row" data-id="${esc(a.id)}">
+      <input type="color" class="ma-color" value="${esc(a.color)}">
+      <input type="text" class="ma-name" value="${esc(a.name)}" maxlength="20">
+      <button class="ma-del" title="삭제">×</button>
+    </div>`).join('');
+
+  el.querySelectorAll('.ma-row').forEach((row) => {
+    const id = row.dataset.id;
+    row.querySelector('.ma-name').addEventListener('change', (e) => {
+      const name = e.target.value.trim();
+      if (!name) { renderActivityManager(); return; }
+      updateActivityField(id, 'name', name);
+    });
+    row.querySelector('.ma-color').addEventListener('change', (e) => updateActivityField(id, 'color', e.target.value));
+    row.querySelector('.ma-del').onclick = () => deleteActivity(id);
+  });
+}
+
+async function updateActivityField(id, field, value) {
+  const idx = state.activities.findIndex((a) => a.id === id);
+  if (idx === -1) return;
+  state.activities[idx] = { ...state.activities[idx], [field]: value };
+  indexActivities();
+  await apiSaveActivities(state.activities);
+  renderPalette('plan'); renderPalette('actual'); updateNowBtn(); renderAll();
+}
+
+async function deleteActivity(id) {
+  const a = act(id);
+  if (!confirm(`"${a.name}" 활동을 목록에서 지울까요? 이미 그려둔 블록은 남지만, 이름이 "${id}"처럼 어색하게 보일 수 있습니다.`)) return;
+  state.activities = state.activities.filter((x) => x.id !== id);
+  indexActivities();
+  await apiSaveActivities(state.activities);
+  if (state.sel.plan === id) state.sel.plan = state.activities[0]?.id || null;
+  if (state.sel.actual === id) state.sel.actual = state.activities[0]?.id || null;
+  renderActivityManager();
+  renderPalette('plan'); renderPalette('actual'); updateNowBtn(); renderAll();
+}
+
+function openActivityManager() {
+  renderActivityManager();
+  $('manageAct').hidden = false;
+}
+
+function closeActivityManager() {
+  $('manageAct').hidden = true;
+}
+
+function wireActivityManager() {
+  $('manageActClose').onclick = closeActivityManager;
+  $('manageAct').addEventListener('click', (e) => { if (e.target.id === 'manageAct') closeActivityManager(); });
+  $('manageActAddForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('manageActAddName').value.trim();
+    if (!name) return;
+    const id = 'c' + Date.now().toString(36);
+    state.activities.push({ id, name, color: $('manageActAddColor').value, group: '공부' });
+    indexActivities();
+    await apiSaveActivities(state.activities);
+    e.target.reset();
+    $('manageActAddColor').value = '#6b7cff';
+    renderActivityManager();
+    renderPalette('plan'); renderPalette('actual'); updateNowBtn();
+  };
 }
 
 /* ----------------------------------------------------------- block list */
@@ -1197,6 +1271,7 @@ async function init() {
   attachWheel('actual');
   wireShare();
   wireActivityEditor();
+  wireActivityManager();
 
   $('dateInput').onchange = (e) => load(e.target.value || todayStr());
   $('prevDay').onclick = () => load(shiftDate(state.date, -1));
@@ -1256,12 +1331,14 @@ async function init() {
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const weekOpen = !$('weekView').hidden;
     const editOpen = !$('editAct').hidden;
+    const manageOpen = !$('manageAct').hidden;
     const mod = e.metaKey || e.ctrlKey;
     const key = (e.key || '').toLowerCase();
 
     if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
+    if (key === 'escape' && manageOpen) { e.preventDefault(); closeActivityManager(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
-    if (editOpen) return;
+    if (editOpen || manageOpen) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
     if (mod && key === 'z' && !typing && !weekOpen) { e.preventDefault(); undo(); return; }

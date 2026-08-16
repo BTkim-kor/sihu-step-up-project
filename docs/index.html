@@ -212,6 +212,21 @@
   </div>
 </div>
 
+<div class="manage-act" id="manageAct" hidden>
+  <div class="manage-act-card">
+    <div class="ma-head">
+      <h3>활동 관리</h3>
+      <button class="ghost sm" id="manageActClose">닫기</button>
+    </div>
+    <div class="ma-list" id="manageActList"></div>
+    <form class="addform ma-add" id="manageActAddForm">
+      <input type="text" id="manageActAddName" placeholder="새 활동 이름" maxlength="20" required>
+      <input type="color" id="manageActAddColor" value="#6b7cff">
+      <button class="sm primary" type="submit">추가</button>
+    </form>
+  </div>
+</div>
+
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>

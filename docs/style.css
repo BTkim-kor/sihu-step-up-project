@@ -299,7 +299,7 @@ input:focus-visible, button:focus-visible, textarea:focus-visible {
   background: repeating-linear-gradient(45deg, var(--line-strong) 0 3px, transparent 3px 6px);
 }
 
-.pal-add { color: var(--ink-3); }
+.pal-add, .pal-manage { color: var(--ink-3); }
 
 .addform {
   display: flex;
@@ -363,6 +363,72 @@ input:focus-visible, button:focus-visible, textarea:focus-visible {
 }
 
 .ea-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- 활동 관리 ---------- */
+
+.manage-act {
+  position: fixed;
+  inset: 0;
+  z-index: 111;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 13, 20, .38);
+  padding: 20px;
+  animation: fade .15s ease;
+}
+.manage-act[hidden] { display: none; }
+
+.manage-act-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 82vh;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ma-head { display: flex; align-items: center; justify-content: space-between; }
+.ma-head h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+
+.ma-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  max-height: 48vh;
+  padding-right: 2px;
+}
+.ma-list:empty::after {
+  content: "활동이 없습니다";
+  color: var(--ink-3);
+  font-size: 12.5px;
+  padding: 10px 0;
+  text-align: center;
+}
+
+.ma-row { display: flex; align-items: center; gap: 8px; }
+.ma-row .ma-color {
+  width: 28px; height: 28px; padding: 0; flex: none;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+}
+.ma-row .ma-name {
+  flex: 1; min-width: 0;
+  font: inherit; font-size: 13px; color: var(--ink);
+  padding: 6px 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--card-soft);
+}
+.ma-row .ma-del {
+  border: none; background: transparent; color: var(--ink-3); flex: none;
+  font-size: 16px; line-height: 1; padding: 5px 8px; border-radius: 7px;
+}
+.ma-row .ma-del:hover { background: #eb57571f; color: #eb5757; }
+
+.ma-add { padding-top: 10px; border-top: 1px solid var(--line); }
 
 /* ---------- block list ---------- */
 
