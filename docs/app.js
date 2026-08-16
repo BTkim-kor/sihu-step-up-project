@@ -1090,6 +1090,39 @@ const schedule = { weeks: [], loaded: false }; // [{weekStart, cells, slots?}], 
 const scheduleSaveTimers = {};
 const scheduleExpanded = new Set(); // 지난 주 중 "펼쳐서 편집"으로 열어둔 주
 const scheduleSplit = new Set();    // 사용자가 "나누기"로 따로 떼어낸 칸 (`주|요일_슬롯id`)
+// 다시 그린 뒤 커서를 어디에 놓을지. 표를 새로 그리면 입력칸이 통째로 바뀌어
+// 커서가 날아가므로, 옮겨갈 자리를 여기 적어 두고 그리기 끝에 다시 잡는다.
+let scheduleFocusTarget = null;     // {week, r, c} 또는 {week, slot}
+
+/** (행,열)을 덮고 있는 칸의 입력칸에 커서를 놓는다. 묶인 칸이면 그 칸 하나. */
+function focusScheduleCell(weekStartStr, r, c) {
+  const table = document.querySelector(`.sched-table[data-week="${CSS.escape(weekStartStr)}"]`);
+  if (!table) return false;
+  const td = [...table.querySelectorAll('td[data-r]')].find((t) =>
+    +t.dataset.r <= r && r <= +t.dataset.r2 && +t.dataset.c <= c && c <= +t.dataset.c2);
+  const inp = td && td.querySelector('input');
+  if (!inp) return false;
+  inp.focus();
+  inp.select();
+  return true;
+}
+
+function focusScheduleTime(weekStartStr, slot) {
+  const table = document.querySelector(`.sched-table[data-week="${CSS.escape(weekStartStr)}"]`);
+  const inp = table && table.querySelector(`.sc-time-in[data-slot="${slot}"]`);
+  if (!inp) return false;
+  inp.focus();
+  inp.select();
+  return true;
+}
+
+function applyScheduleFocus() {
+  const t = scheduleFocusTarget;
+  if (!t) return;
+  scheduleFocusTarget = null;
+  if (t.slot !== undefined) focusScheduleTime(t.week, t.slot);
+  else focusScheduleCell(t.week, t.r, t.c);
+}
 
 /**
  * 그 주가 쓰는 시간 칸 목록. 시간을 한 번도 안 고친 주(그리고 옛 데이터)는
@@ -1410,18 +1443,59 @@ function renderScheduleWeeks() {
     inp.addEventListener('change', () => commitCell(inp));
   });
 
-  // 표 안 입력칸은 감싸는 폼이 없어서 Enter 가 그냥 무시된다. 직접 확정시킨다.
-  // 확정 뒤 다시 그려서 새로 생긴 묶임·색을 바로 보여준다.
-  // (Esc 는 고치던 걸 물리고 원래 값으로 되돌린다. 시간 칸은 아래에서 따로 처리.)
+  /** 지금 칸에서 dr행·dc열만큼 옮긴 자리. 묶인 칸은 그 덩어리 바깥으로 나간다. */
+  const neighborOf = (inp, dr, dc) => {
+    const td = inp.closest('td[data-r]');
+    const table = inp.closest('.sched-table');
+    if (!td || !table) return null;
+    const rows = table.tBodies[0].rows.length;
+    const r = dr > 0 ? +td.dataset.r2 + dr : +td.dataset.r + dr;
+    const c = dc > 0 ? +td.dataset.c2 + dc : +td.dataset.c + dc;
+    if (r < 0 || r >= rows || c < 0 || c >= SCHED_DAYS.length) return null;
+    return { week: inp.dataset.week, r, c };
+  };
+
+  // 표 안 입력칸은 감싸는 폼이 없어서 Enter 가 그냥 무시된다. 직접 확정시키고,
+  // 표 계산기처럼 아래 칸으로 커서를 넘긴다. 방향키로도 칸 사이를 오갈 수 있다.
+  // (Esc 는 고치던 걸 물린다. 시간 칸은 아래에서 따로 처리.)
   el.querySelectorAll('.sched-table input[data-keys]').forEach((inp) => {
     const original = inp.value;
     inp.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
-      if (e.key !== 'Enter') return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const td = inp.closest('td[data-r]');
+        const next = neighborOf(inp, 1, 0)
+                  || { week: inp.dataset.week, r: +td.dataset.r, c: +td.dataset.c }; // 맨 아랫줄이면 제자리
+        if (commitCell(inp)) {
+          // 값이 바뀌면 묶임·색이 달라져 표를 다시 그려야 한다. 새로 그린
+          // 표에서 커서를 다시 잡아야 하므로 갈 자리를 넘겨 둔다.
+          scheduleFocusTarget = next;
+          renderScheduleWeeks();
+        } else {
+          focusScheduleCell(next.week, next.r, next.c);
+        }
+        return;
+      }
+
+      const step = { ArrowDown: [1, 0], ArrowUp: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+      if (!step || e.metaKey || e.ctrlKey || e.altKey) return;
+      // 좌우 화살표는 글자 안에서 커서를 옮기는 중이면 가로채지 않는다.
+      // 다만 방금 이 칸으로 건너와 글자가 통째로 선택된 상태면 칸 이동으로 본다.
+      const len = inp.value.length;
+      const allSelected = inp.selectionStart === 0 && inp.selectionEnd === len && len > 0;
+      if (step[1] && !allSelected) {
+        const atStart = inp.selectionStart === 0 && inp.selectionEnd === 0;
+        const atEnd = inp.selectionStart === len && inp.selectionEnd === len;
+        if (step[1] < 0 && !atStart) return;
+        if (step[1] > 0 && !atEnd) return;
+      }
+      const next = neighborOf(inp, step[0], step[1]);
+      if (!next) return;
       e.preventDefault();
-      const changed = commitCell(inp);
-      inp.blur();
-      if (changed) renderScheduleWeeks();
+      commitCell(inp);   // 옮기기 전에 적어둔 값은 저장한다(다시 그리지는 않는다)
+      focusScheduleCell(next.week, next.r, next.c);
     });
   });
 
@@ -1451,9 +1525,10 @@ function renderScheduleWeeks() {
 
   el.querySelectorAll('.sched-table[data-week]').forEach(attachScheduleDrag);
 
+  /** 'rejected' | 'same' | 'changed' — 커서를 옮겨도 되는지 판단하는 데 쓴다. */
   const commitTime = (inp) => {
     const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
-    if (!w) return;
+    if (!w) return 'same';
     const slots = slotsOf(w).map((s) => ({ ...s }));
     const i = Number(inp.dataset.slot);
     const parsed = parseSchedTime(inp.value);
@@ -1465,9 +1540,9 @@ function renderScheduleWeeks() {
         || (next && parsed.end >= next.end)
         || (!next && parsed.end > 1440)) {
       inp.value = slotLabel(slots[i]);
-      return;
+      return 'rejected';
     }
-    if (parsed.start === slots[i].start && parsed.end === slots[i].end) return;
+    if (parsed.start === slots[i].start && parsed.end === slots[i].end) return 'same';
     // 바뀐 만큼 바로 옆 한 칸의 길이만 늘거나 준다. 나머지 칸은 건드리지 않는다.
     slots[i].start = parsed.start;
     slots[i].end = parsed.end;
@@ -1476,18 +1551,43 @@ function renderScheduleWeeks() {
     w.slots = slots;
     scheduleSaveDebounced(w.weekStart);
     renderScheduleWeeks();               // 옆 칸 라벨도 같이 갱신된다
+    return 'changed';
   };
 
   el.querySelectorAll('.sc-time-in').forEach((inp) => {
     const original = inp.value;
+    const slot = Number(inp.dataset.slot);
+    const rowCount = inp.closest('.sched-table').tBodies[0].rows.length;
+
+    // 커서를 slot 번째 시간 칸으로 옮긴다. 값이 안 읽히는 상태면 고칠 수
+    // 있도록 제자리에 둔다(다시 그렸다면 그리기 끝에서 이미 옮겨졌다).
+    const moveTo = (target) => {
+      scheduleFocusTarget = { week: inp.dataset.week, slot: target };
+      const res = commitTime(inp);
+      if (res === 'rejected') { scheduleFocusTarget = null; return; }
+      if (res === 'same') applyScheduleFocus();
+    };
+
     inp.addEventListener('change', () => commitTime(inp));
     inp.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
-      if (e.key !== 'Enter') return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        moveTo(Math.min(slot + 1, rowCount - 1));   // 맨 아랫줄이면 제자리
+        return;
+      }
+
+      const dir = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+      if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
+      const next = slot + dir;
+      if (next < 0 || next >= rowCount) return;
       e.preventDefault();
-      commitTime(inp);   // 다시 그리면서 이 입력칸은 사라지므로 blur 는 필요 없다
+      moveTo(next);
     });
   });
+
+  applyScheduleFocus();   // 다시 그리기 전에 적어둔 자리가 있으면 커서를 되돌린다
 }
 
 /**
