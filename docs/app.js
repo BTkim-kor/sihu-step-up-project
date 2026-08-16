@@ -1203,13 +1203,41 @@ function isoWeekNo(dateStr) {
 }
 
 /**
- * 칸 색상 — 같은 내용이면 늘 같은 파스텔 색이 나오도록 글자에서 색상(hue)을
- * 뽑는다. 채도·명도는 CSS 변수로 두어 라이트/다크에서 각각 알맞게 나온다.
+ * 칸 색상 분류. 글자마다 색을 따로 주면 표가 무지개가 돼서 오히려 안 읽힌다.
+ * "1교시~7교시"는 전부 학교수업 한 덩어리인 것처럼, 성격이 같은 일과를
+ * 묶어 같은 색을 준다. 색 자체는 CSS 에서 `td[data-cat]` 으로 정한다.
  */
+// 위에서부터 먼저 걸리는 규칙이 이긴다. "4교시(자습)"은 자습이 아니라 수업이고,
+// "Roll-Call / 취침"은 점호가 아니라 잠자리라서 순서가 곧 의미다.
+const SCHED_CATEGORIES = [
+  ['class', /(^|\s)\d+\s*교시|수업/],
+  ['study', /자습|공부|독서|스터디/],
+  ['meal',  /식사|점심|저녁|아침밥|간식|중식|석식/],
+  ['rest',  /기상|취침|샤워|정리|휴식|수면|세면/],
+  ['meet',  /조회|종례|롤콜|roll-?call/i],
+  ['act',   /비교과|활동|동아리|운동|체육|봉사/],
+  ['move',  /귀가|이동|등교|하교|외출/],
+];
+
+function schedCategory(text) {
+  const t = (text || '').trim();
+  if (!t) return '';
+  for (const [cat, re] of SCHED_CATEGORIES) if (re.test(t)) return cat;
+  return '';
+}
+
+/** 분류에 안 걸리는 내용은 글자에서 색상(hue)을 뽑아 옅게 칠한다. */
 function schedHue(text) {
   let h = 0;
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) % 360;
   return h;
+}
+
+/** 칸에 붙일 색 관련 속성(분류가 있으면 분류색, 없으면 글자 해시색). */
+function schedCellAttrs(v) {
+  if (!v) return '';
+  const cat = schedCategory(v);
+  return cat ? ` data-cat="${cat}"` : ` style="--cell-h:${schedHue(v)}"`;
 }
 
 async function loadScheduleWeeks() {
@@ -1255,7 +1283,7 @@ function schedEditHtml(w) {
       const merged = s.rs > 1 || s.cs > 1;
       const span = (s.rs > 1 ? ` rowspan="${s.rs}"` : '') + (s.cs > 1 ? ` colspan="${s.cs}"` : '');
       const cls = `${s.v ? 'sc-filled' : ''}${merged ? ' sc-merged' : ''}`.trim();
-      const hue = s.v ? ` style="--cell-h:${schedHue(s.v)}"` : '';
+      const hue = schedCellAttrs(s.v);
       const pos = ` data-r="${s.r}" data-c="${s.c}" data-r2="${s.r + s.rs - 1}" data-c2="${s.c + s.cs - 1}"`;
       let btn = '';
       if (merged) {
@@ -1297,7 +1325,7 @@ function schedSummaryHtml(w) {
       while (j + 1 < vals.length && vals[j + 1] === vals[i]) j++;
       const span = j - i + 1;
       cols += `<td${span > 1 ? ` colspan="${span}"` : ''}` +
-              `${vals[i] ? ` class="sc-filled" style="--cell-h:${schedHue(vals[i])}"` : ''}>${esc(vals[i])}</td>`;
+              `${vals[i] ? ` class="sc-filled"${schedCellAttrs(vals[i])}` : ''}>${esc(vals[i])}</td>`;
       i = j + 1;
     }
     return `<tr><td class="sc-time">${time}</td>${cols}</tr>`;
@@ -1348,19 +1376,46 @@ function renderScheduleWeeks() {
     };
   });
 
-  // 묶인 칸에 쓴 내용은 그 칸이 덮고 있는 범위 전체에 똑같이 들어간다
+  /**
+   * 칸 내용 확정. 묶인 칸이면 그 칸이 덮고 있는 범위 전체에 똑같이 넣는다.
+   * 실제로 바뀐 게 있을 때만 true 를 돌려준다.
+   *
+   * blur 때 오는 change 에만 기대지 않고 이 함수를 직접 부른다. change 는
+   * 브라우저가 "사용자가 고쳤다"고 표시한 입력칸에서만 오는데, Enter 로
+   * 확정하는 흐름까지 거기 얹으면 안 먹는 경우가 생긴다.
+   */
+  const commitCell = (inp) => {
+    const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
+    if (!w) return false;
+    const val = inp.value.trim();
+    const keys = inp.dataset.keys.split(',');
+    if (keys.every((k) => (w.cells[k] || '') === val)) return false;
+    for (const k of keys) {
+      if (val) w.cells[k] = val; else delete w.cells[k];
+    }
+    const td = inp.closest('td');
+    if (td) td.classList.toggle('sc-filled', !!val);
+    scheduleSaveDebounced(w.weekStart);
+    return true;
+  };
+
   el.querySelectorAll('.sched-table input[data-keys]').forEach((inp) => {
-    inp.addEventListener('change', (e) => {
-      const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
-      if (!w) return;
-      const val = e.target.value.trim();
-      for (const k of inp.dataset.keys.split(',')) {
-        if (val) w.cells[k] = val; else delete w.cells[k];
-      }
-      e.target.closest('td').classList.toggle('sc-filled', !!val);
-      scheduleSaveDebounced(w.weekStart);
-      // 여기서 다시 그리지는 않는다 — 묶인 칸을 고쳐도 묶인 범위는 그대로라
-      // 다시 그릴 이유가 없고, 칸을 옮겨다니며 입력할 때 포커스만 끊긴다.
+    // 칸을 옮겨다니며 입력할 때 포커스가 끊기지 않도록, 여기서는 다시 그리지 않는다
+    inp.addEventListener('change', () => commitCell(inp));
+  });
+
+  // 표 안 입력칸은 감싸는 폼이 없어서 Enter 가 그냥 무시된다. 직접 확정시킨다.
+  // 확정 뒤 다시 그려서 새로 생긴 묶임·색을 바로 보여준다.
+  // (Esc 는 고치던 걸 물리고 원래 값으로 되돌린다. 시간 칸은 아래에서 따로 처리.)
+  el.querySelectorAll('.sched-table input[data-keys]').forEach((inp) => {
+    const original = inp.value;
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const changed = commitCell(inp);
+      inp.blur();
+      if (changed) renderScheduleWeeks();
     });
   });
 
@@ -1390,31 +1445,41 @@ function renderScheduleWeeks() {
 
   el.querySelectorAll('.sched-table[data-week]').forEach(attachScheduleDrag);
 
+  const commitTime = (inp) => {
+    const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
+    if (!w) return;
+    const slots = slotsOf(w).map((s) => ({ ...s }));
+    const i = Number(inp.dataset.slot);
+    const parsed = parseSchedTime(inp.value);
+    const prev = i > 0 ? slots[i - 1] : null;
+    const next = i < slots.length - 1 ? slots[i + 1] : null;
+    // 못 읽는 값이거나, 바로 앞/뒤 칸을 0분 이하로 뭉개는 값이면 되돌린다
+    if (!parsed
+        || (prev && prev.start >= parsed.start)
+        || (next && parsed.end >= next.end)
+        || (!next && parsed.end > 1440)) {
+      inp.value = slotLabel(slots[i]);
+      return;
+    }
+    if (parsed.start === slots[i].start && parsed.end === slots[i].end) return;
+    // 바뀐 만큼 바로 옆 한 칸의 길이만 늘거나 준다. 나머지 칸은 건드리지 않는다.
+    slots[i].start = parsed.start;
+    slots[i].end = parsed.end;
+    if (prev) prev.end = parsed.start;
+    if (next) next.start = parsed.end;
+    w.slots = slots;
+    scheduleSaveDebounced(w.weekStart);
+    renderScheduleWeeks();               // 옆 칸 라벨도 같이 갱신된다
+  };
+
   el.querySelectorAll('.sc-time-in').forEach((inp) => {
-    inp.addEventListener('change', (e) => {
-      const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
-      if (!w) return;
-      const slots = slotsOf(w).map((s) => ({ ...s }));
-      const i = Number(inp.dataset.slot);
-      const parsed = parseSchedTime(e.target.value);
-      const prev = i > 0 ? slots[i - 1] : null;
-      const next = i < slots.length - 1 ? slots[i + 1] : null;
-      // 못 읽는 값이거나, 바로 앞/뒤 칸을 0분 이하로 뭉개는 값이면 되돌린다
-      if (!parsed
-          || (prev && prev.start >= parsed.start)
-          || (next && parsed.end >= next.end)
-          || (!next && parsed.end > 1440)) {
-        e.target.value = slotLabel(slots[i]);
-        return;
-      }
-      // 바뀐 만큼 바로 옆 한 칸의 길이만 늘거나 준다. 나머지 칸은 건드리지 않는다.
-      slots[i].start = parsed.start;
-      slots[i].end = parsed.end;
-      if (prev) prev.end = parsed.start;
-      if (next) next.start = parsed.end;
-      w.slots = slots;
-      scheduleSaveDebounced(w.weekStart);
-      renderScheduleWeeks();               // 옆 칸 라벨도 같이 갱신된다
+    const original = inp.value;
+    inp.addEventListener('change', () => commitTime(inp));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); inp.value = original; inp.blur(); return; }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      commitTime(inp);   // 다시 그리면서 이 입력칸은 사라지므로 blur 는 필요 없다
     });
   });
 }
