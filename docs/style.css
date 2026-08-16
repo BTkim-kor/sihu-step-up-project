@@ -1141,7 +1141,7 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 /* 한 항목 = 한 줄. 진행바·현재값·상태가 같은 열에 서도록 폭을 고정한다. */
 .pg-row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 130px 118px 84px;
+  grid-template-columns: 52px minmax(0, 1fr) 130px 118px 84px 26px;
   align-items: center;
   gap: 10px;
   padding: 10px 4px;
@@ -1255,7 +1255,7 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .tk-rows { border-top: 1px solid var(--line); }
 .tk-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 78px 84px 62px;
+  grid-template-columns: minmax(0, 1fr) 78px 84px 62px 26px;
   align-items: center;
   gap: 12px;
   padding: 11px 12px;
@@ -1283,12 +1283,34 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .tk-row .ghost { font-size: 11.5px; padding: 5px 0; }
 
 .tk-row.is-done {
-  grid-template-columns: 18px minmax(0, 1fr) 96px 72px;
+  grid-template-columns: 18px minmax(0, 1fr) 96px 72px 26px;
   background: var(--card-soft);
   color: var(--ink-3);
 }
 .tk-check { color: var(--good); font-weight: 700; text-align: center; }
 .tk-row.is-done .tk-title { font-weight: 500; color: var(--ink-3); cursor: pointer; }
+
+/* 줄 끝 삭제(✕) — 평소엔 흐리게 두다가 줄에 마우스를 올리면 또렷해진다 */
+.row-del {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1;
+  opacity: .45;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.pg-row:hover .row-del, .tk-row:hover .row-del { opacity: 1; }
+.row-del:hover { background: #fdeaea; color: #d64545; opacity: 1; }
+.row-del:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -1px; }
+@media (hover: none) { .row-del { opacity: .8; } }
+@media (prefers-color-scheme: dark) {
+  .row-del:hover { background: #3d2020; color: #f08e8e; }
+}
 
 .tk-badge {
   font-size: 11px;
@@ -1303,10 +1325,28 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .tk-badge.is-soon { background: #fdeaea; color: #b33; }
 .tk-badge.is-warn { background: #fdf3e3; color: #96631a; }
 
-/* 항목·수행 편집창 — 두 칸짜리 격자 */
-.edit-act-card.wide { width: min(520px, 92vw); }
-.ie-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* 항목·수행 편집창 — 두 칸짜리 격자.
+   기본 .edit-act-card 는 max-width:300px 라 그대로 두면 칸이 카드를 뚫고
+   나간다. 넓은 창은 max-width 자체를 다시 잡아야 한다. */
+.edit-act-card.wide { max-width: min(520px, 92vw); }
+
+/* 1fr 은 min-width:auto 라 내용이 넓으면 칸 밖으로 밀려난다 → minmax(0,1fr) */
+.ie-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .ie-grid .span2 { grid-column: 1 / -1; }
+
+/* select·number·date 는 손대지 않으면 제 내용만큼 넓어져 칸을 넘는다 */
+.ie-grid input, .ie-grid select {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-soft);
+}
+.ie-grid select { height: 38px; padding: 0 8px; }
 .ie-spacer { flex: 1; }
 .ma-row input[type="text"] { flex: 1; }
 
@@ -1315,17 +1355,18 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 @media (max-width: 640px) {
   .ie-grid { grid-template-columns: 1fr; }
 
-  .tk-row { grid-template-columns: minmax(0, 1fr) 84px 62px; row-gap: 8px; }
+  .tk-row { grid-template-columns: minmax(0, 1fr) 84px 62px 26px; row-gap: 8px; }
   .tk-main { grid-column: 1 / -1; }
   .tk-when { text-align: left; }
-  .tk-row.is-done { grid-template-columns: 18px minmax(0, 1fr) 72px; }
+  .tk-row.is-done { grid-template-columns: 18px minmax(0, 1fr) 72px 26px; }
   .tk-row.is-done .tk-when { grid-column: 2; text-align: left; }
 
-  .pg-row { grid-template-columns: 52px minmax(0, 1fr) 96px; row-gap: 7px; }
+  .pg-row { grid-template-columns: 52px minmax(0, 1fr) 96px 26px; row-gap: 7px; }
   .pg-name { grid-column: 2 / -1; }
   .pg-bar { grid-column: 1 / -1; }
   .pg-num { grid-column: 1 / 3; justify-content: flex-start; }
   .pg-chip { grid-column: 3; }
+  .row-del { grid-column: 4; }
   .pg-sub2 { grid-column: 1 / -1; margin-top: 0; }
 
   .tk-alert-d { margin-left: 0; }

@@ -1994,6 +1994,15 @@ function renderProgress() {
   el.querySelectorAll('[data-edit-item]').forEach((b) => {
     b.onclick = () => openItemEditor(b.dataset.editItem);
   });
+  el.querySelectorAll('[data-del-item]').forEach((b) => {
+    b.onclick = async () => {
+      const it = board.items.find((x) => x.id === b.dataset.delItem);
+      if (!it || !confirm(`'${it.name}'을(를) 지울까요?\n기록한 진도도 함께 사라집니다.`)) return;
+      await apiDeleteProgressItem(it.id);
+      board.items = board.items.filter((x) => x.id !== it.id);
+      renderProgress();
+    };
+  });
   el.querySelectorAll('input[data-cur]').forEach((inp) => {
     const commit = () => {
       const it = board.items.find((x) => x.id === inp.dataset.cur);
@@ -2027,6 +2036,7 @@ function progressRowHtml(it, s) {
       <span class="pg-den">/ ${p.total}${esc(it.unit)}</span>
     </span>
     ${itemStatusChip(p)}
+    <button class="row-del" data-del-item="${esc(it.id)}" title="이 항목 지우기" aria-label="${esc(it.name)} 지우기">✕</button>
     <span class="pg-sub2">${sub}</span>
   </div>`;
 }
@@ -2108,7 +2118,11 @@ function renderTasks() {
   if (!alertEl.hidden) {
     const names = [...over, ...soon].slice(0, 3)
       .map((t) => `${subjOf(t.subjectId).name} ${t.title}`).join(' · ');
-    alertEl.innerHTML = `<span class="tk-alert-t">⚠ 기한 지남 ${over.length}건 · 3일 이내 ${soon.length}건</span>
+    // 0건짜리는 아예 빼야 눈에 걸리는 숫자만 남는다
+    const parts = [];
+    if (over.length) parts.push(`기한 지남 ${over.length}건`);
+    if (soon.length) parts.push(`3일 이내 ${soon.length}건`);
+    alertEl.innerHTML = `<span class="tk-alert-t">⚠ ${parts.join(' · ')}</span>
       <span class="tk-alert-d">${esc(names)}</span>`;
   }
 
@@ -2155,6 +2169,15 @@ function renderTasks() {
   el.querySelectorAll('[data-task-edit]').forEach((b) => {
     b.onclick = () => openTaskEditor(b.dataset.taskEdit);
   });
+  el.querySelectorAll('[data-del-task]').forEach((b) => {
+    b.onclick = async () => {
+      const t = board.tasks.find((x) => x.id === b.dataset.delTask);
+      if (!t || !confirm(`'${t.title}'을(를) 지울까요?`)) return;
+      await apiDeleteTask(t.id);
+      board.tasks = board.tasks.filter((x) => x.id !== t.id);
+      renderTasks();
+    };
+  });
   const f = $('tkDoneFold');
   if (f) f.onclick = () => { taskDoneFolded = !taskDoneFolded; renderTasks(); };
   const fa = $('tkFirstAdd');
@@ -2179,6 +2202,7 @@ function taskRowHtml(t) {
       <span class="tk-title" data-task-edit="${esc(t.id)}">${esc(s.name)} · ${esc(t.title)}</span>
       <span class="tk-when">${t.doneDate ? `${t.doneDate.slice(5).replace('-', '/')} 제출` : '제출함'}</span>
       <button class="ghost sm" data-task-done="${esc(t.id)}">되돌리기</button>
+      <button class="row-del" data-del-task="${esc(t.id)}" title="이 수행 지우기" aria-label="${esc(t.title)} 지우기">✕</button>
     </div>`;
   }
   const dow = ['일', '월', '화', '수', '목', '금', '토'][new Date(t.dueDate + 'T00:00').getDay()];
@@ -2190,6 +2214,7 @@ function taskRowHtml(t) {
     <span class="tk-when">${t.dueDate.slice(5).replace('-', '/')}(${dow})</span>
     <span class="tk-dday ${lv}">${taskDdayText(t)}</span>
     <button class="ghost sm" data-task-done="${esc(t.id)}">제출</button>
+    <button class="row-del" data-del-task="${esc(t.id)}" title="이 수행 지우기" aria-label="${esc(t.title)} 지우기">✕</button>
   </div>`;
 }
 
