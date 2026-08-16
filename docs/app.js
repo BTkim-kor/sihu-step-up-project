@@ -1088,7 +1088,8 @@ function closeWeek() {
 
 const schedule = { weeks: [], loaded: false }; // [{weekStart, cells, slots?}], 최신 주부터
 const scheduleSaveTimers = {};
-const scheduleExpanded = new Set(); // 지난 주 중 "펼쳐서 편집"으로 열어둔 주
+const scheduleOpen = new Set();     // 지난 주 중 한 줄 접기를 펼쳐 놓은 주
+const scheduleExpanded = new Set(); // 그중 "펼쳐서 편집"까지 들어간 주
 const scheduleSplit = new Set();    // 사용자가 "나누기"로 따로 떼어낸 칸 (`주|요일_슬롯id`)
 // 다시 그린 뒤 커서를 어디에 놓을지. 표를 새로 그리면 입력칸이 통째로 바뀌어
 // 커서가 날아가므로, 옮겨갈 자리를 여기 적어 두고 그리기 끝에 다시 잡는다.
@@ -1388,22 +1389,30 @@ function scheduleWeekBadge(weekStartStr) {
   return diffWeeks > 0 ? `${diffWeeks}주 후` : `${-diffWeeks}주 전`;
 }
 
+/**
+ * 지난 주는 기본적으로 **한 줄로 접어** 둔다. 몇 주만 쌓여도 요약판을 전부
+ * 펼쳐 두면 스크롤이 끝없이 길어지는데, 실제로는 어느 주를 볼지 고른 뒤에야
+ * 내용이 필요하다. 머리글 줄을 누르면 그 주만 펼쳐지고, 거기서 다시
+ * "펼쳐서 편집"을 누르면 고칠 수 있는 표가 된다.
+ */
 function scheduleWeekCardHtml(w) {
   const end = shiftDate(w.weekStart, 6);
   const [sy, sm, sd] = w.weekStart.split('-').map(Number);
   const [, em, ed] = end.split('-').map(Number);
-  // 지난 주는 참고용이라 요약판으로 접어 두고, 필요하면 펼쳐서 고칠 수 있다.
   const past = isPastWeek(w.weekStart);
+  const open = !past || scheduleOpen.has(w.weekStart);
   const summary = past && !scheduleExpanded.has(w.weekStart);
-  return `<section class="sched-week${summary ? ' is-sum' : ''}">
-    <div class="sched-week-head">
+  const cls = `sched-week${open ? '' : ' is-fold'}${open && summary ? ' is-sum' : ''}`;
+  return `<section class="${cls}">
+    <div class="sched-week-head${past ? ' is-foldable' : ''}"${past ? ` data-fold="${esc(w.weekStart)}"` : ''}>
+      ${past ? `<span class="sc-chev">${open ? '▾' : '▸'}</span>` : ''}
       <span class="sc-wk">W${isoWeekNo(w.weekStart)}</span>
       <span>${sy}. ${sm}. ${sd}. – ${em}. ${ed}.</span>
       <span class="sub">${scheduleWeekBadge(w.weekStart)}</span>
-      ${past ? `<button class="ghost sm sc-toggle" data-week="${esc(w.weekStart)}">${summary ? '펼쳐서 편집' : '요약 보기'}</button>` : ''}
+      ${past && open ? `<button class="ghost sm sc-toggle" data-week="${esc(w.weekStart)}">${summary ? '펼쳐서 편집' : '요약 보기'}</button>` : ''}
       <button class="ghost sm sc-del" data-week="${esc(w.weekStart)}" title="이 주를 통째로 지우기">삭제</button>
     </div>
-    ${summary ? schedSummaryHtml(w) : schedEditHtml(w)}
+    ${open ? (summary ? schedSummaryHtml(w) : schedEditHtml(w)) : ''}
   </section>`;
 }
 
@@ -1422,6 +1431,17 @@ function renderScheduleWeeks() {
   el.innerHTML =
     (pair.length ? `<div class="sched-pair">${pair.map(scheduleWeekCardHtml).join('')}</div>` : '') +
     rest.map(scheduleWeekCardHtml).join('');
+
+  // 머리글 줄 자체가 접기·펼치기 스위치다(줄 안의 버튼을 누른 건 제외).
+  el.querySelectorAll('.sched-week-head[data-fold]').forEach((head) => {
+    head.onclick = (e) => {
+      if (e.target.closest('button')) return;
+      const k = head.dataset.fold;
+      if (scheduleOpen.has(k)) { scheduleOpen.delete(k); scheduleExpanded.delete(k); }
+      else scheduleOpen.add(k);
+      renderScheduleWeeks();
+    };
+  });
 
   el.querySelectorAll('.sc-toggle').forEach((btn) => {
     btn.onclick = () => {
@@ -1702,6 +1722,7 @@ async function deleteScheduleWeek(weekStartStr) {
   await apiDeleteScheduleWeek(weekStartStr);
   schedule.weeks = schedule.weeks.filter((x) => x.weekStart !== weekStartStr);
   scheduleExpanded.delete(weekStartStr);
+  scheduleOpen.delete(weekStartStr);
   renderScheduleWeeks();
 }
 
