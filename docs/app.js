@@ -6,12 +6,15 @@ const DAY = 1440;
 const SLOTS = DAY / SNAP;   // 144
 const ERASER = '__erase';
 
-// 원 그래프 좌표계 (viewBox 360x360)
-const CX = 180, CY = 180;
+// 원 그래프 좌표계 (viewBox 400x400 — 바깥 여백은 콜아웃 라벨용으로 둔다)
+const CX = 200, CY = 200;
 const R_OUT = 142;   // 파이 바깥 반지름
 const R_HOLE = 58;   // 가운데 라벨 원
 const R_RING_IN = 96; // 실행 도넛 안쪽
 const R_TICK = 150, R_TICK_MAJOR = 155, R_LABEL = 167;
+const R_CALLOUT_START = R_OUT + 4;    // 콜아웃 점선이 시작하는 지점(파이 가장자리 바로 밖)
+const R_CALLOUT_END = R_LABEL + 8;   // 점선이 끝나는 지점(시간 눈금 숫자 밖)
+const R_CALLOUT_TEXT = R_CALLOUT_END + 10; // 이름 글자가 놓이는 지점
 
 const $ = (id) => document.getElementById(id);
 
@@ -332,6 +335,7 @@ function pickTextColor(hex) {
  * 가로로 넣기엔 좁은 블록은 한 글자씩 세로로 쌓아서라도 표시하고,
  * 그마저도 안 되는 아주 짧은 블록은 글자를 그리지 않는다.
  */
+/** 가로 또는 반지름 방향 세로로 원 안에 들어가는 이름표. 너무 좁으면 아무것도 안 그린다(콜아웃은 segCallout 몫). */
 function segLabel(b, r0, r1) {
   const dur = b.end - b.start;
   if (dur < MIN_LABEL_MIN_VERT) return '';
@@ -341,11 +345,11 @@ function segLabel(b, r0, r1) {
   const midR = (r0 + r1) / 2;
   const a = act(b.activity);
   const fill = pickTextColor(a.color);
-  const attrs = `data-activity="${esc(b.activity)}" text-anchor="middle" dominant-baseline="central" fill="${fill}"`;
 
   if (dur >= MIN_LABEL_MIN) {
     const [x, y] = polar(midR, midDeg);
-    return `<text class="seg-label" ${attrs} x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(a.name)}</text>`;
+    return `<text class="seg-label" data-activity="${esc(b.activity)}" text-anchor="middle"` +
+           ` dominant-baseline="central" fill="${fill}" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(a.name)}</text>`;
   }
 
   // 가로로 넣기엔 좁다 — "세로"의 기준은 화면 상/하가 아니라 그 블록의
@@ -366,7 +370,31 @@ function segLabel(b, r0, r1) {
     const [x, y] = polar(rr, midDeg);
     return `<tspan x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(ch)}</tspan>`;
   }).join('');
-  return `<text class="seg-label seg-label-v" ${attrs}>${tspans}</text>`;
+  return `<text class="seg-label seg-label-v" data-activity="${esc(b.activity)}" text-anchor="middle"` +
+         ` dominant-baseline="central" fill="${fill}">${tspans}</text>`;
+}
+
+/**
+ * 가로도 세로도 들어가지 않을 만큼 좁은 블록의 이름표. 점선을 원 바깥
+ * 여백까지 끌어내 그 끝에 이름을 적는다. 점선은 활동 색을 그대로 써서
+ * 어느 블록의 이름인지 잇는다. 시간 눈금(wheelChrome) 위에 그려야 하므로
+ * segLabel과 달리 renderWheel에서 별도로, 더 나중에 호출한다.
+ */
+function segCallout(b, r0, r1) {
+  const dur = b.end - b.start;
+  if (dur <= 0 || dur >= MIN_LABEL_MIN_VERT) return '';
+
+  const mid = (b.start + b.end) / 2;
+  const midDeg = minToDeg(mid);
+  const a = act(b.activity);
+  const [lx1, ly1] = polar(R_CALLOUT_START, midDeg);
+  const [lx2, ly2] = polar(R_CALLOUT_END, midDeg);
+  const [tx, ty] = polar(R_CALLOUT_TEXT, midDeg);
+  const line = `<line class="seg-callout-line" x1="${lx1.toFixed(1)}" y1="${ly1.toFixed(1)}"` +
+               ` x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}" stroke="${a.color}"/>`;
+  const text = `<text class="seg-label seg-label-callout" data-activity="${esc(b.activity)}" text-anchor="middle"` +
+               ` dominant-baseline="central" x="${tx.toFixed(1)}" y="${ty.toFixed(1)}">${esc(a.name)}</text>`;
+  return line + text;
 }
 
 /* --------------------------------------------------------------- render */
@@ -454,6 +482,14 @@ function renderWheel(side) {
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="none" stroke="var(--line-strong)" stroke-width="1.2"/>`;
   s += wheelChrome();
   if (side === 'actual') s += nowMarker();
+
+  // 콜아웃(점선 이름표)은 시간 눈금 숫자보다 바깥에 있으므로, 눈금을 그린
+  // 뒤에 그려야 눈금 숫자에 가리지 않는다.
+  if (side === 'plan') {
+    for (const b of blocks) s += segCallout(b, R_HOLE, R_OUT);
+  } else {
+    for (const b of blocks) s += segCallout(b, R_RING_IN, R_OUT);
+  }
 
   const study = groupMinutes(blocks, '공부');
   s += `<circle cx="${CX}" cy="${CY}" r="${R_HOLE}" fill="var(--card)" stroke="var(--line)" stroke-width="1"/>`;
@@ -962,7 +998,7 @@ function closeWeek() {
 }
 
 function miniWheel(d) {
-  let s = '<svg viewBox="0 0 360 360">';
+  let s = '<svg viewBox="0 0 400 400">';
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="var(--card-soft)"/>`;
   for (const b of d.plan) s += segShape(b, 0, R_OUT, act(b.activity).color, 0.42);
   for (const b of d.actual) s += segShape(b, R_RING_IN, R_OUT, act(b.activity).color, 1);

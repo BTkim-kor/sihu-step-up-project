@@ -247,6 +247,13 @@ input:focus-visible, button:focus-visible, textarea:focus-visible {
   pointer-events: auto;
 }
 .wheel .seg-label:hover { text-decoration: underline; }
+.wheel .seg-label-callout { fill: var(--ink-2); }
+.wheel .seg-callout-line {
+  stroke-width: 1.2;
+  stroke-dasharray: 2.5 2.5;
+  opacity: .8;
+  pointer-events: none;
+}
 .wheel .lbl { font-size: 11.5px; fill: var(--ink-3); font-weight: 600; }
 .wheel .lbl-major { fill: var(--ink-2); }
 .wheel .center-main { font-size: 16px; font-weight: 700; fill: var(--ink); }
