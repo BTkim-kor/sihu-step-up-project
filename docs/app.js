@@ -17,17 +17,15 @@ const $ = (id) => document.getElementById(id);
 
 const DEFAULT_ACTIVITIES = [
   { id: 'math', name: '수학', color: '#4C6FFF', group: '공부' },
-  { id: 'english', name: '영어', color: '#7C5CFF', group: '공부' },
-  { id: 'reading', name: '국어/독서', color: '#2FB6A5', group: '공부' },
-  { id: 'school', name: '학교', color: '#3A8DDE', group: '공부' },
-  { id: 'academy', name: '학원/과외', color: '#5C7CFA', group: '공부' },
-  { id: 'homework', name: '숙제/복습', color: '#00A3A3', group: '공부' },
-  { id: 'exercise', name: '운동', color: '#F2994A', group: '활동' },
-  { id: 'meal', name: '식사', color: '#F2C14E', group: '생활' },
-  { id: 'rest', name: '휴식/자유', color: '#9AA5B1', group: '생활' },
-  { id: 'play', name: '놀이/미디어', color: '#EB5757', group: '생활' },
-  { id: 'move', name: '이동', color: '#C0C7D0', group: '생활' },
-  { id: 'sleep', name: '수면', color: '#2E3A4B', group: '생활' },
+  { id: 'english', name: '영어', color: '#8B5CF6', group: '공부' },
+  { id: 'korean', name: '국어', color: '#14B8A6', group: '공부' },
+  { id: 'biology', name: '생물', color: '#22A559', group: '공부' },
+  { id: 'physics', name: '물리', color: '#0EA5E9', group: '공부' },
+  { id: 'chemistry', name: '화학', color: '#D6409F', group: '공부' },
+  { id: 'meal', name: '식사', color: '#F2B134', group: '생활' },
+  { id: 'hobby', name: '취미', color: '#F2994A', group: '생활' },
+  { id: 'rest', name: '휴식', color: '#9AA5B1', group: '생활' },
+  { id: 'move', name: '이동', color: '#C7CDD6', group: '생활' },
 ];
 
 /* ---------------------------------------------------------------- utils */
@@ -316,6 +314,27 @@ function segShape(b, r0, r1, fill, opacity) {
   return d ? `<path class="seg" d="${d}" fill="${fill}" fill-opacity="${op}"/>` : '';
 }
 
+const MIN_LABEL_MIN = 50; // 이보다 짧은 블록엔 글자가 겹쳐서 이름을 안 그린다
+
+/** 배경색 밝기에 따라 검정/흰색 글자 중 더 잘 보이는 쪽을 고른다. */
+function pickTextColor(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const r = lin(((n >> 16) & 255) / 255), g = lin(((n >> 8) & 255) / 255), b = lin((n & 255) / 255);
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return L > 0.45 ? '#1b2330' : '#ffffff';
+}
+
+/** 블록이 채워진 자리에 활동 이름을 그린다. 클릭하면 이름·색을 고칠 수 있다. */
+function segLabel(b, r0, r1) {
+  if (b.end - b.start < MIN_LABEL_MIN) return '';
+  const mid = (b.start + b.end) / 2;
+  const [x, y] = polar((r0 + r1) / 2, minToDeg(mid));
+  const a = act(b.activity);
+  return `<text class="seg-label" data-activity="${esc(b.activity)}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"` +
+         ` text-anchor="middle" dominant-baseline="central" fill="${pickTextColor(a.color)}">${esc(a.name)}</text>`;
+}
+
 /* --------------------------------------------------------------- render */
 
 function wheelChrome() {
@@ -378,6 +397,13 @@ function renderWheel(side) {
 
   s += spokes(false);
 
+  // 활동 이름 — 눈금선 위에 그려서 글자가 잘리지 않게 한다
+  if (side === 'plan') {
+    for (const b of blocks) s += segLabel(b, 0, R_OUT);
+  } else {
+    for (const b of blocks) s += segLabel(b, R_RING_IN, R_OUT);
+  }
+
   // 드래그 미리보기
   if (drag && drag.side === side && drag.range) {
     const [ds, de] = drag.range;
@@ -429,6 +455,7 @@ function attachWheel(side) {
   const tip = $('tooltip');
 
   svg.addEventListener('pointerdown', (ev) => {
+    if (ev.target.closest('.seg-label')) return; // 이름 클릭은 편집용 — 칠하기 시작하지 않는다
     const p = pointOf(svg, ev);
     if (p.dist > R_OUT + 14 || p.dist < 14) return;
     const activity = state.sel[side];
@@ -436,6 +463,11 @@ function attachWheel(side) {
     try { svg.setPointerCapture(ev.pointerId); } catch (_) { /* noop */ }
     drag = { side, activity, startDeg: p.deg, prevAng: p.deg, acc: 0, range: null, moved: false };
     ev.preventDefault();
+  });
+
+  svg.addEventListener('click', (ev) => {
+    const label = ev.target.closest('.seg-label');
+    if (label) openActivityEditor(label.dataset.activity);
   });
 
   svg.addEventListener('pointermove', (ev) => {
@@ -539,6 +571,47 @@ function showAddForm(el, side) {
 function updateNowBtn() {
   const id = state.sel.actual;
   $('nowActName').textContent = !id || id === ERASER ? '(활동 선택)' : act(id).name;
+}
+
+/* -------------------------------------------------------- 활동 이름·색 편집 */
+
+let editingActivityId = null;
+
+function openActivityEditor(id) {
+  const a = act(id);
+  editingActivityId = id;
+  $('editActName').value = a.name;
+  $('editActColor').value = a.color;
+  $('editAct').hidden = false;
+  $('editActName').focus();
+  $('editActName').select();
+}
+
+function closeActivityEditor() {
+  $('editAct').hidden = true;
+  editingActivityId = null;
+}
+
+async function saveActivityEdit() {
+  if (!editingActivityId) return;
+  const name = $('editActName').value.trim();
+  const color = $('editActColor').value;
+  if (!name) return;
+  const idx = state.activities.findIndex((a) => a.id === editingActivityId);
+  if (idx === -1) return;
+  state.activities[idx] = { ...state.activities[idx], name, color };
+  indexActivities();
+  await apiSaveActivities(state.activities);
+  closeActivityEditor();
+  renderPalette('plan'); renderPalette('actual'); updateNowBtn();
+  renderAll();
+}
+
+function wireActivityEditor() {
+  $('editActSave').onclick = saveActivityEdit;
+  $('editActCancel').onclick = closeActivityEditor;
+  $('editActName').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveActivityEdit(); });
+  $('editAct').addEventListener('click', (e) => { if (e.target.id === 'editAct') closeActivityEditor(); });
 }
 
 /* ----------------------------------------------------------- block list */
@@ -1123,6 +1196,7 @@ async function init() {
   attachWheel('plan');
   attachWheel('actual');
   wireShare();
+  wireActivityEditor();
 
   $('dateInput').onchange = (e) => load(e.target.value || todayStr());
   $('prevDay').onclick = () => load(shiftDate(state.date, -1));
@@ -1181,10 +1255,13 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     const weekOpen = !$('weekView').hidden;
+    const editOpen = !$('editAct').hidden;
     const mod = e.metaKey || e.ctrlKey;
     const key = (e.key || '').toLowerCase();
 
+    if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
+    if (editOpen) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
     if (mod && key === 'z' && !typing && !weekOpen) { e.preventDefault(); undo(); return; }

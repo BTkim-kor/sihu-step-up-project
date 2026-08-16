@@ -194,6 +194,24 @@
   </div>
 </div>
 
+<div class="edit-act" id="editAct" hidden>
+  <div class="edit-act-card">
+    <h3>활동 편집</h3>
+    <label class="ea-field">
+      <span>이름</span>
+      <input type="text" id="editActName" maxlength="20">
+    </label>
+    <label class="ea-field">
+      <span>색상</span>
+      <input type="color" id="editActColor">
+    </label>
+    <div class="ea-actions">
+      <button class="ghost" id="editActCancel">취소</button>
+      <button class="primary" id="editActSave">저장</button>
+    </div>
+  </div>
+</div>
+
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
