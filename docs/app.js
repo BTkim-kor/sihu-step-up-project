@@ -337,20 +337,26 @@ function segLabel(b, r0, r1) {
   if (dur < MIN_LABEL_MIN_VERT) return '';
 
   const mid = (b.start + b.end) / 2;
-  const [x, y] = polar((r0 + r1) / 2, minToDeg(mid));
+  const midDeg = minToDeg(mid);
+  const midR = (r0 + r1) / 2;
   const a = act(b.activity);
   const fill = pickTextColor(a.color);
   const attrs = `data-activity="${esc(b.activity)}" text-anchor="middle" dominant-baseline="central" fill="${fill}"`;
 
   if (dur >= MIN_LABEL_MIN) {
+    const [x, y] = polar(midR, midDeg);
     return `<text class="seg-label" ${attrs} x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(a.name)}</text>`;
   }
 
+  // 가로로 넣기엔 좁다 — "세로"의 기준은 화면 상/하가 아니라 그 블록의
+  // 안쪽 원(위) → 바깥 원(아래) 방향이다. 글자를 한 자씩 그 방향(반지름)을
+  // 따라 쌓는다. 글자 자체는 눕히지 않고 항상 똑바로 서 있는 채로 둔다.
   const chars = Array.from(a.name);
-  const lineHeight = 12;
+  const radiusStep = 12;
   const tspans = chars.map((ch, i) => {
-    const dy = (i - (chars.length - 1) / 2) * lineHeight;
-    return `<tspan x="${x.toFixed(1)}" y="${(y + dy).toFixed(1)}">${esc(ch)}</tspan>`;
+    const rr = midR + (i - (chars.length - 1) / 2) * radiusStep;
+    const [x, y] = polar(rr, midDeg);
+    return `<tspan x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(ch)}</tspan>`;
   }).join('');
   return `<text class="seg-label seg-label-v" ${attrs}>${tspans}</text>`;
 }
