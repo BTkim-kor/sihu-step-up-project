@@ -255,10 +255,11 @@ async function apiListScheduleWeeks() {
   return snap.docs.map((d) => d.data());
 }
 
-async function apiSaveScheduleWeek(weekStartStr, cells) {
-  await db.doc(`families/${FID}/scheduleWeeks/${weekStartStr}`).set({
-    weekStart: weekStartStr, cells, updated_at: new Date().toISOString(),
-  });
+/** slots 는 시간 칸을 한 번이라도 고친 주에만 붙는다(안 고쳤으면 기본값을 쓴다). */
+async function apiSaveScheduleWeek(weekStartStr, cells, slots) {
+  const doc = { weekStart: weekStartStr, cells, updated_at: new Date().toISOString() };
+  if (slots) doc.slots = slots;
+  await db.doc(`families/${FID}/scheduleWeeks/${weekStartStr}`).set(doc);
 }
 
 async function apiGetDay(date) {
@@ -1073,8 +1074,53 @@ function closeWeek() {
 // 표 형식으로 세워두는 화면. 새 주를 만들 때마다 학교 일과 기본값을 채워
 // 넣고, 지난 주는 지우지 않고 아래로 계속 쌓아 언제든 다시 볼 수 있게 한다.
 
-const schedule = { weeks: [], loaded: false }; // [{weekStart, cells}], 최신 주부터
+const schedule = { weeks: [], loaded: false }; // [{weekStart, cells, slots?}], 최신 주부터
 const scheduleSaveTimers = {};
+const scheduleExpanded = new Set(); // 지난 주 중 "펼쳐서 편집"으로 열어둔 주
+
+/**
+ * 그 주가 쓰는 시간 칸 목록. 시간을 한 번도 안 고친 주(그리고 옛 데이터)는
+ * 기본 시간표를 그대로 쓴다. slot.id 는 칸 데이터(cells)의 키에 들어가 있어서
+ * 시간을 고쳐도 절대 바뀌면 안 된다 — start/end 만 움직인다.
+ */
+function slotsOf(w) {
+  if (Array.isArray(w.slots) && w.slots.length) return w.slots;
+  return SCHED_SLOTS.map((s) => ({ id: s.id, start: s.start, end: s.end }));
+}
+
+function slotLabel(slot) {
+  return `${schedClock(slot.start)}~${schedClock(slot.end)}`;
+}
+
+/** "7:00~7:30", "07:00 - 7:30" 같은 걸 분 단위로 읽는다. 못 읽으면 null. */
+function parseSchedTime(text) {
+  const m = String(text).match(/(\d{1,2})\s*:\s*(\d{2})\s*[~\-–—]\s*(\d{1,2})\s*:\s*(\d{2})/);
+  if (!m) return null;
+  const start = Number(m[1]) * 60 + Number(m[2]);
+  const end = Number(m[3]) * 60 + Number(m[4]);
+  if (start < 0 || end > 1440 || start >= end) return null;
+  return { start, end };
+}
+
+/**
+ * 요약판용. 7요일 값이 전부 같은 상태로 이어지는 시간 칸들을 한 덩어리로 묶는다.
+ * (예: 9:00~9:30 과 9:30~10:00 이 모든 요일에서 "1교시"면 한 줄로 합친다.)
+ */
+function schedGroups(slots, cells) {
+  const valsOf = (i) => SCHED_DAYS.map((d) => (cells[`${d}_${slots[i].id}`] || '').trim());
+  const out = [];
+  slots.forEach((_, i) => {
+    const vals = valsOf(i);
+    const last = out[out.length - 1];
+    if (last && last.vals.every((v, k) => v === vals[k])) last.to = i;
+    else out.push({ from: i, to: i, vals });
+  });
+  return out;
+}
+
+function isPastWeek(weekStartStr) {
+  return daysBetween(weekStart(todayStr()), weekStartStr) < 0;
+}
 
 async function loadScheduleWeeks() {
   schedule.weeks = await apiListScheduleWeeks();
@@ -1088,18 +1134,48 @@ async function loadScheduleWeeks() {
   renderScheduleWeeks();
 }
 
-function scheduleTableHtml(weekStartStr, cells) {
+/** 편집판 — 칸 하나하나가 입력칸이고, 맨 왼쪽 시간 칸도 고칠 수 있다. */
+function schedEditHtml(w) {
+  const slots = slotsOf(w);
   const head = `<tr><th class="sc-time">시간</th>${SCHED_DAYS.map((d) => `<th>${d}요일</th>`).join('')}</tr>`;
-  const body = SCHED_SLOTS.map((slot) => {
+  const body = slots.map((slot, i) => {
     const cols = SCHED_DAYS.map((day) => {
       const key = `${day}_${slot.id}`;
-      const val = cells[key] || '';
+      const val = w.cells[key] || '';
       return `<td class="${val ? 'sc-filled' : ''}"><input type="text" maxlength="20"` +
-             ` data-week="${esc(weekStartStr)}" data-key="${esc(key)}" value="${esc(val)}"></td>`;
+             ` data-week="${esc(w.weekStart)}" data-key="${esc(key)}" value="${esc(val)}"></td>`;
     }).join('');
-    return `<tr><td class="sc-time">${slot.label}</td>${cols}</tr>`;
+    return `<tr><td class="sc-time"><input type="text" class="sc-time-in" maxlength="13"` +
+           ` data-week="${esc(w.weekStart)}" data-slot="${i}" value="${esc(slotLabel(slot))}"></td>${cols}</tr>`;
   }).join('');
   return `<div class="sched-table-wrap"><table class="sched-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+/**
+ * 요약판(지난 주 기본값) — 읽기 전용. 같은 내용이 이어지는 구간은 세로로
+ * (schedGroups), 같은 내용인 이웃 요일은 가로로(colspan) 묶어서 한 칸으로
+ * 보여준다. 아무것도 없는 구간은 얇은 빈 줄로만 남겨 높이를 줄인다.
+ */
+function schedSummaryHtml(w) {
+  const slots = slotsOf(w);
+  const head = `<tr><th class="sc-time">시간</th>${SCHED_DAYS.map((d) => `<th>${d}</th>`).join('')}</tr>`;
+  const body = schedGroups(slots, w.cells).map((g) => {
+    const vals = g.vals;
+    const time = `${schedClock(slots[g.from].start)}~${schedClock(slots[g.to].end)}`;
+    if (vals.every((v) => !v)) {
+      return `<tr class="sc-gap"><td class="sc-time">${time}</td><td colspan="${SCHED_DAYS.length}"></td></tr>`;
+    }
+    let cols = '';
+    for (let i = 0; i < vals.length;) {
+      let j = i;
+      while (j + 1 < vals.length && vals[j + 1] === vals[i]) j++;
+      const span = j - i + 1;
+      cols += `<td${span > 1 ? ` colspan="${span}"` : ''}${vals[i] ? ' class="sc-filled"' : ''}>${esc(vals[i])}</td>`;
+      i = j + 1;
+    }
+    return `<tr><td class="sc-time">${time}</td>${cols}</tr>`;
+  }).join('');
+  return `<div class="sched-table-wrap"><table class="sched-table sched-sum"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
 /** a→b 날짜 차이(일). "YYYY-MM-DD" 문자열을 로컬 자정 기준으로 비교한다. */
@@ -1121,16 +1197,28 @@ function renderScheduleWeeks() {
     const end = shiftDate(w.weekStart, 6);
     const [sy, sm, sd] = w.weekStart.split('-').map(Number);
     const [, em, ed] = end.split('-').map(Number);
-    return `<section class="sched-week">
+    // 지난 주는 참고용이라 요약판으로 접어 두고, 필요하면 펼쳐서 고칠 수 있다.
+    const past = isPastWeek(w.weekStart);
+    const summary = past && !scheduleExpanded.has(w.weekStart);
+    return `<section class="sched-week${summary ? ' is-sum' : ''}">
       <div class="sched-week-head">
         <span>${sy}. ${sm}. ${sd}. – ${em}. ${ed}.</span>
         <span class="sub">${scheduleWeekBadge(w.weekStart)}</span>
+        ${past ? `<button class="ghost sm sc-toggle" data-week="${esc(w.weekStart)}">${summary ? '펼쳐서 편집' : '요약 보기'}</button>` : ''}
       </div>
-      ${scheduleTableHtml(w.weekStart, w.cells)}
+      ${summary ? schedSummaryHtml(w) : schedEditHtml(w)}
     </section>`;
   }).join('');
 
-  el.querySelectorAll('.sched-table input').forEach((inp) => {
+  el.querySelectorAll('.sc-toggle').forEach((btn) => {
+    btn.onclick = () => {
+      const k = btn.dataset.week;
+      if (scheduleExpanded.has(k)) scheduleExpanded.delete(k); else scheduleExpanded.add(k);
+      renderScheduleWeeks();
+    };
+  });
+
+  el.querySelectorAll('.sched-table input[data-key]').forEach((inp) => {
     inp.addEventListener('change', (e) => {
       const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
       if (!w) return;
@@ -1140,13 +1228,37 @@ function renderScheduleWeeks() {
       scheduleSaveDebounced(w.weekStart);
     });
   });
+
+  el.querySelectorAll('.sc-time-in').forEach((inp) => {
+    inp.addEventListener('change', (e) => {
+      const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
+      if (!w) return;
+      const slots = slotsOf(w).map((s) => ({ ...s }));
+      const i = Number(inp.dataset.slot);
+      const parsed = parseSchedTime(e.target.value);
+      const prev = i > 0 ? slots[i - 1] : null;
+      const next = i < slots.length - 1 ? slots[i + 1] : null;
+      // 못 읽는 값이거나 앞뒤 칸을 0분으로 뭉개는 값이면 원래대로 되돌린다
+      if (!parsed || (prev && prev.start >= parsed.start) || (next && parsed.end >= next.end)) {
+        e.target.value = slotLabel(slots[i]);
+        return;
+      }
+      slots[i].start = parsed.start;
+      slots[i].end = parsed.end;
+      if (prev) prev.end = parsed.start;   // 시간표가 끊기지 않도록 바로 옆 칸만 따라 붙인다
+      if (next) next.start = parsed.end;
+      w.slots = slots;
+      scheduleSaveDebounced(w.weekStart);
+      renderScheduleWeeks();               // 옆 칸 라벨도 같이 갱신된다
+    });
+  });
 }
 
 function scheduleSaveDebounced(weekStartStr) {
   clearTimeout(scheduleSaveTimers[weekStartStr]);
   scheduleSaveTimers[weekStartStr] = setTimeout(() => {
     const w = schedule.weeks.find((x) => x.weekStart === weekStartStr);
-    if (w) apiSaveScheduleWeek(w.weekStart, w.cells);
+    if (w) apiSaveScheduleWeek(w.weekStart, w.cells, w.slots);
   }, 700);
 }
 
