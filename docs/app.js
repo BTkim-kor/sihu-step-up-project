@@ -1077,6 +1077,7 @@ function closeWeek() {
 const schedule = { weeks: [], loaded: false }; // [{weekStart, cells, slots?}], 최신 주부터
 const scheduleSaveTimers = {};
 const scheduleExpanded = new Set(); // 지난 주 중 "펼쳐서 편집"으로 열어둔 주
+const scheduleSplit = new Set();    // 사용자가 "나누기"로 따로 떼어낸 칸 (`주|요일_슬롯id`)
 
 /**
  * 그 주가 쓰는 시간 칸 목록. 시간을 한 번도 안 고친 주(그리고 옛 데이터)는
@@ -1118,6 +1119,47 @@ function schedGroups(slots, cells) {
   return out;
 }
 
+/**
+ * 편집판용. 같은 값이 붙어 있는 칸들을 직사각형(rowspan×colspan)으로 묶는다.
+ * 기본값이 거의 안 바뀌는 표라, 같은 글자가 세로로 두 줄·가로로 월~금 반복되는
+ * 걸 한 칸으로 보여주는 편이 훨씬 읽기 쉽다.
+ *
+ * - **빈 칸은 묶지 않는다.** 안 그러면 토/일 빈칸이 통째로 한 덩어리가 돼서
+ *   특정 요일에만 뭘 적어 넣을 수가 없다.
+ * - `isFixed(cellKey)` 가 true 인 칸(= 사용자가 "나누기"로 떼어낸 칸)도 묶지 않는다.
+ */
+function schedSpans(slots, cells, isFixed) {
+  const R = slots.length, C = SCHED_DAYS.length;
+  const key = (r, c) => `${SCHED_DAYS[c]}_${slots[r].id}`;
+  const val = (r, c) => (cells[key(r, c)] || '').trim();
+  const fixed = (r, c) => !!(isFixed && isFixed(key(r, c)));
+  const covered = Array.from({ length: R }, () => new Array(C).fill(false));
+  const out = [];
+
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      if (covered[r][c]) continue;
+      const v = val(r, c);
+      let cs = 1, rs = 1;
+      if (v && !fixed(r, c)) {
+        while (c + cs < C && !covered[r][c + cs] && val(r, c + cs) === v && !fixed(r, c + cs)) cs++;
+        let ok = true;
+        while (ok && r + rs < R) {
+          for (let k = 0; k < cs; k++) {
+            if (covered[r + rs][c + k] || val(r + rs, c + k) !== v || fixed(r + rs, c + k)) { ok = false; break; }
+          }
+          if (ok) rs++;
+        }
+      }
+      for (let i = 0; i < rs; i++) for (let k = 0; k < cs; k++) covered[r + i][c + k] = true;
+      const keys = [];
+      for (let i = 0; i < rs; i++) for (let k = 0; k < cs; k++) keys.push(key(r + i, c + k));
+      out.push({ r, c, rs, cs, v, keys });
+    }
+  }
+  return out;
+}
+
 function isPastWeek(weekStartStr) {
   return daysBetween(weekStart(todayStr()), weekStartStr) < 0;
 }
@@ -1134,21 +1176,41 @@ async function loadScheduleWeeks() {
   renderScheduleWeeks();
 }
 
-/** 편집판 — 칸 하나하나가 입력칸이고, 맨 왼쪽 시간 칸도 고칠 수 있다. */
+/** 표 열 너비는 colgroup 으로 고정한다(칸을 묶어도 폭이 흔들리지 않게). */
+function schedColGroup() {
+  return `<colgroup><col class="sc-c-time">${SCHED_DAYS.map(() => '<col>').join('')}</colgroup>`;
+}
+
+/**
+ * 편집판 — 같은 값이 붙어 있는 칸은 하나로 묶어서 보여주고, 묶인 칸에 쓴
+ * 내용은 묶인 범위 전체에 적용된다. 특정 요일만 다르게 하고 싶으면 칸 안의
+ * 나누기(⇹) 버튼으로 떼어낸 뒤 고치면 된다.
+ */
 function schedEditHtml(w) {
   const slots = slotsOf(w);
-  const head = `<tr><th class="sc-time">시간</th>${SCHED_DAYS.map((d) => `<th>${d}요일</th>`).join('')}</tr>`;
-  const body = slots.map((slot, i) => {
-    const cols = SCHED_DAYS.map((day) => {
-      const key = `${day}_${slot.id}`;
-      const val = w.cells[key] || '';
-      return `<td class="${val ? 'sc-filled' : ''}"><input type="text" maxlength="20"` +
-             ` data-week="${esc(w.weekStart)}" data-key="${esc(key)}" value="${esc(val)}"></td>`;
+  const head = `<tr><th class="sc-time">시간</th>${SCHED_DAYS.map((d) => `<th>${d}</th>`).join('')}</tr>`;
+  const spans = schedSpans(slots, w.cells, (k) => scheduleSplit.has(`${w.weekStart}|${k}`));
+  const byRow = {};
+  for (const s of spans) (byRow[s.r] = byRow[s.r] || []).push(s);
+
+  const body = slots.map((slot, r) => {
+    const cols = (byRow[r] || []).sort((a, b) => a.c - b.c).map((s) => {
+      const merged = s.rs > 1 || s.cs > 1;
+      const attrs = (s.rs > 1 ? ` rowspan="${s.rs}"` : '') + (s.cs > 1 ? ` colspan="${s.cs}"` : '');
+      const cls = `${s.v ? 'sc-filled' : ''}${merged ? ' sc-merged' : ''}`.trim();
+      return `<td${attrs}${cls ? ` class="${cls}"` : ''}>` +
+        `<input type="text" maxlength="20" data-week="${esc(w.weekStart)}"` +
+        ` data-keys="${esc(s.keys.join(','))}" value="${esc(s.v)}">` +
+        (merged ? `<button class="sc-split" title="묶인 칸을 요일·시간별로 나눠서 따로 고치기"` +
+                  ` data-week="${esc(w.weekStart)}" data-keys="${esc(s.keys.join(','))}">⇹</button>` : '') +
+        `</td>`;
     }).join('');
     return `<tr><td class="sc-time"><input type="text" class="sc-time-in" maxlength="13"` +
-           ` data-week="${esc(w.weekStart)}" data-slot="${i}" value="${esc(slotLabel(slot))}"></td>${cols}</tr>`;
+           ` data-week="${esc(w.weekStart)}" data-slot="${r}" value="${esc(slotLabel(slot))}"></td>${cols}</tr>`;
   }).join('');
-  return `<div class="sched-table-wrap"><table class="sched-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+
+  return `<div class="sched-table-wrap"><table class="sched-table">${schedColGroup()}` +
+         `<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
 /**
@@ -1175,7 +1237,8 @@ function schedSummaryHtml(w) {
     }
     return `<tr><td class="sc-time">${time}</td>${cols}</tr>`;
   }).join('');
-  return `<div class="sched-table-wrap"><table class="sched-table sched-sum"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="sched-table-wrap"><table class="sched-table sched-sum">${schedColGroup()}` +
+         `<thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
 /** a→b 날짜 차이(일). "YYYY-MM-DD" 문자열을 로컬 자정 기준으로 비교한다. */
@@ -1218,15 +1281,28 @@ function renderScheduleWeeks() {
     };
   });
 
-  el.querySelectorAll('.sched-table input[data-key]').forEach((inp) => {
+  // 묶인 칸에 쓴 내용은 그 칸이 덮고 있는 범위 전체에 똑같이 들어간다
+  el.querySelectorAll('.sched-table input[data-keys]').forEach((inp) => {
     inp.addEventListener('change', (e) => {
       const w = schedule.weeks.find((x) => x.weekStart === inp.dataset.week);
       if (!w) return;
       const val = e.target.value.trim();
-      if (val) w.cells[inp.dataset.key] = val; else delete w.cells[inp.dataset.key];
+      for (const k of inp.dataset.keys.split(',')) {
+        if (val) w.cells[k] = val; else delete w.cells[k];
+      }
       e.target.closest('td').classList.toggle('sc-filled', !!val);
       scheduleSaveDebounced(w.weekStart);
+      // 여기서 다시 그리지는 않는다 — 묶인 칸을 고쳐도 묶인 범위는 그대로라
+      // 다시 그릴 이유가 없고, 칸을 옮겨다니며 입력할 때 포커스만 끊긴다.
     });
+  });
+
+  // 나누기 — 묶인 칸을 원래대로 떼어내서 요일·시간별로 따로 고칠 수 있게 한다
+  el.querySelectorAll('.sc-split').forEach((btn) => {
+    btn.onclick = () => {
+      for (const k of btn.dataset.keys.split(',')) scheduleSplit.add(`${btn.dataset.week}|${k}`);
+      renderScheduleWeeks();
+    };
   });
 
   el.querySelectorAll('.sc-time-in').forEach((inp) => {
