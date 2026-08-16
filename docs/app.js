@@ -314,7 +314,8 @@ function segShape(b, r0, r1, fill, opacity) {
   return d ? `<path class="seg" d="${d}" fill="${fill}" fill-opacity="${op}"/>` : '';
 }
 
-const MIN_LABEL_MIN = 50; // 이보다 짧은 블록엔 글자가 겹쳐서 이름을 안 그린다
+const MIN_LABEL_MIN = 50;      // 이 이상이면 이름을 가로로 그린다
+const MIN_LABEL_MIN_VERT = 22; // 가로로는 좁지만 이 이상이면 한 글자씩 세로로 쌓아 그린다
 
 /** 배경색 밝기에 따라 검정/흰색 글자 중 더 잘 보이는 쪽을 고른다. */
 function pickTextColor(hex) {
@@ -325,14 +326,33 @@ function pickTextColor(hex) {
   return L > 0.45 ? '#1b2330' : '#ffffff';
 }
 
-/** 블록이 채워진 자리에 활동 이름을 그린다. 클릭하면 이름·색을 고칠 수 있다. */
+/**
+ * 블록이 채워진 자리에 활동 이름을 그린다. r0/r1 사이 정중앙(안쪽 원과 바깥
+ * 원의 가운데)에 놓인다. 클릭하면 이름·색을 고칠 수 있다.
+ * 가로로 넣기엔 좁은 블록은 한 글자씩 세로로 쌓아서라도 표시하고,
+ * 그마저도 안 되는 아주 짧은 블록은 글자를 그리지 않는다.
+ */
 function segLabel(b, r0, r1) {
-  if (b.end - b.start < MIN_LABEL_MIN) return '';
+  const dur = b.end - b.start;
+  if (dur < MIN_LABEL_MIN_VERT) return '';
+
   const mid = (b.start + b.end) / 2;
   const [x, y] = polar((r0 + r1) / 2, minToDeg(mid));
   const a = act(b.activity);
-  return `<text class="seg-label" data-activity="${esc(b.activity)}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"` +
-         ` text-anchor="middle" dominant-baseline="central" fill="${pickTextColor(a.color)}">${esc(a.name)}</text>`;
+  const fill = pickTextColor(a.color);
+  const attrs = `data-activity="${esc(b.activity)}" text-anchor="middle" dominant-baseline="central" fill="${fill}"`;
+
+  if (dur >= MIN_LABEL_MIN) {
+    return `<text class="seg-label" ${attrs} x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(a.name)}</text>`;
+  }
+
+  const chars = Array.from(a.name);
+  const lineHeight = 12;
+  const tspans = chars.map((ch, i) => {
+    const dy = (i - (chars.length - 1) / 2) * lineHeight;
+    return `<tspan x="${x.toFixed(1)}" y="${(y + dy).toFixed(1)}">${esc(ch)}</tspan>`;
+  }).join('');
+  return `<text class="seg-label seg-label-v" ${attrs}>${tspans}</text>`;
 }
 
 /* --------------------------------------------------------------- render */
@@ -397,9 +417,10 @@ function renderWheel(side) {
 
   s += spokes(false);
 
-  // 활동 이름 — 눈금선 위에 그려서 글자가 잘리지 않게 한다
+  // 활동 이름 — 안쪽 원(계획: 가운데 구멍 / 실행: 실행 링 안쪽 경계)과
+  // 바깥 원 사이 정중앙에 놓는다. 눈금선 위에 그려서 글자가 잘리지 않게 한다.
   if (side === 'plan') {
-    for (const b of blocks) s += segLabel(b, 0, R_OUT);
+    for (const b of blocks) s += segLabel(b, R_HOLE, R_OUT);
   } else {
     for (const b of blocks) s += segLabel(b, R_RING_IN, R_OUT);
   }
