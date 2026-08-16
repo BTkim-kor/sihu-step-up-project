@@ -1144,6 +1144,44 @@ const scheduleSaveTimers = {};
 const scheduleOpen = new Set();     // 지난 주 중 한 줄 접기를 펼쳐 놓은 주
 const scheduleExpanded = new Set(); // 그중 "펼쳐서 편집"까지 들어간 주
 const scheduleSplit = new Set();    // 사용자가 "나누기"로 따로 떼어낸 칸 (`주|요일_슬롯id`)
+
+/**
+ * 주간 일정표 되돌리기.
+ *
+ * 드래그 한 번이면 지나간 범위가 통째로 같은 값이 된다 — 실수로 표 전체를
+ * 쓸면 한 주 계획이 그대로 사라진다. 고치기 직전 상태를 쌓아 두고 되돌린다.
+ * "마지막에 한 일"을 되돌리는 개념이라 주별이 아니라 하나의 스택이다.
+ */
+const scheduleUndoStack = [];
+const SCHEDULE_UNDO_MAX = 40;
+
+function pushScheduleUndo(weekStartStr) {
+  const w = schedule.weeks.find((x) => x.weekStart === weekStartStr);
+  if (!w) return;
+  scheduleUndoStack.push({
+    week: weekStartStr,
+    cells: { ...w.cells },
+    slots: w.slots ? w.slots.map((s) => ({ ...s })) : null,
+  });
+  if (scheduleUndoStack.length > SCHEDULE_UNDO_MAX) scheduleUndoStack.shift();
+}
+
+function undoSchedule() {
+  const snap = scheduleUndoStack.pop();
+  if (!snap) return false;
+  const w = schedule.weeks.find((x) => x.weekStart === snap.week);
+  if (!w) return false;
+  w.cells = snap.cells;
+  if (snap.slots) w.slots = snap.slots; else delete w.slots;
+  scheduleSaveDebounced(snap.week);
+  renderScheduleWeeks();
+  return true;
+}
+
+function refreshScheduleUndoBtn() {
+  const b = $('scheduleUndo');
+  if (b) b.disabled = !scheduleUndoStack.length;
+}
 // 다시 그린 뒤 커서를 어디에 놓을지. 표를 새로 그리면 입력칸이 통째로 바뀌어
 // 커서가 날아가므로, 옮겨갈 자리를 여기 적어 두고 그리기 끝에 다시 잡는다.
 let scheduleFocusTarget = null;     // {week, r, c} 또는 {week, slot}
@@ -1518,6 +1556,7 @@ function renderScheduleWeeks() {
     const val = inp.value.trim();
     const keys = inp.dataset.keys.split(',');
     if (keys.every((k) => (w.cells[k] || '') === val)) return false;
+    pushScheduleUndo(w.weekStart);
     for (const k of keys) {
       if (val) w.cells[k] = val; else delete w.cells[k];
     }
@@ -1632,6 +1671,7 @@ function renderScheduleWeeks() {
       return 'rejected';
     }
     if (parsed.start === slots[i].start && parsed.end === slots[i].end) return 'same';
+    pushScheduleUndo(w.weekStart);
     // 바뀐 만큼 바로 옆 한 칸의 길이만 늘거나 준다. 나머지 칸은 건드리지 않는다.
     slots[i].start = parsed.start;
     slots[i].end = parsed.end;
@@ -1676,6 +1716,7 @@ function renderScheduleWeeks() {
     });
   });
 
+  refreshScheduleUndoBtn();
   applyScheduleFocus();   // 다시 그리기 전에 적어둔 자리가 있으면 커서를 되돌린다
 }
 
@@ -1759,6 +1800,9 @@ function mergeScheduleRange(weekStartStr, b) {
   // 범위 안에서 처음 만나는 내용을 대표값으로 삼는다(빈 칸만 골랐으면 할 일 없음)
   const val = keys.map((k) => (w.cells[k] || '').trim()).find((v) => v);
   if (!val) return;
+  // 손이 미끄러져 표 전체를 쓸어버린 경우를 한 번 걸러 준다
+  if (keys.length > 24 && !confirm(`${keys.length}칸을 '${val}'(으)로 한꺼번에 채웁니다.\n계속할까요?`)) return;
+  pushScheduleUndo(weekStartStr);
   for (const k of keys) {
     w.cells[k] = val;
     scheduleSplit.delete(`${weekStartStr}|${k}`); // 전에 나눠둔 흔적도 지운다
@@ -2757,6 +2801,8 @@ async function init() {
 
   // 주간 일정표
   $('scheduleAddWeek').onclick = addNewScheduleWeek;
+  $('scheduleUndo').onclick = () => undoSchedule();
+  $('scheduleUndo').title = `방금 고친 것 되돌리기 (${MOD}Z)`;
 
   // 단축키 — ⌘(macOS) / Ctrl(Windows·Linux) 양쪽 모두 동작한다
   $('saveBtn').title = `지금 저장 (${MOD}S)`;
@@ -2783,7 +2829,13 @@ async function init() {
     if (key === 'escape' && editOpen) { e.preventDefault(); closeActivityEditor(); return; }
     if (key === 'escape' && manageOpen) { e.preventDefault(); closeActivityManager(); return; }
     if (key === 'escape' && weekOpen) { e.preventDefault(); closeWeek(); return; }
-    if (editOpen || manageOpen || boardPops.length || (!dayTabActive && typing)) return;
+    if (editOpen || manageOpen || boardPops.length) return;
+
+    // 주간 일정표 되돌리기는 입력칸 안에서도 받아야 한다 — 드래그로 통째로
+    // 덮어쓴 직후엔 보통 어느 칸엔가 커서가 남아 있다. 그래서 아래
+    // "탭 밖에서 타이핑 중이면 무시" 규칙보다 먼저 처리한다.
+    if (mod && key === 'z' && !$('panelSchedule').hidden) { e.preventDefault(); undoSchedule(); return; }
+    if (!dayTabActive && typing) return;
 
     if (mod && key === 's') { e.preventDefault(); saveNow(); return; }
     if (mod && key === 'z' && !typing && dayTabActive && !weekOpen) { e.preventDefault(); undo(); return; }
