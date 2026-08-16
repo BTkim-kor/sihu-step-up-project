@@ -10,7 +10,7 @@ const ERASER = '__erase';
 const CX = 200, CY = 200;
 const R_OUT = 142;   // 파이 바깥 반지름
 const R_HOLE = 58;   // 가운데 라벨 원
-const R_RING_IN = 96; // 실행 도넛 안쪽
+const R_ACTUAL_OUT = Math.round(R_OUT * 0.6); // 실행(안쪽 진한 띠)의 바깥 경계 — 전체 반지름의 3/5
 const R_TICK = 150, R_TICK_MAJOR = 155, R_LABEL = 167;
 const R_CALLOUT_START = R_OUT + 4;    // 콜아웃 점선이 시작하는 지점(파이 가장자리 바로 밖)
 const R_CALLOUT_END = R_LABEL + 8;   // 점선이 끝나는 지점(시간 눈금 숫자 밖)
@@ -451,30 +451,32 @@ function renderWheel(side) {
   if (side === 'plan') {
     for (const b of blocks) s += segShape(b, 0, R_OUT, act(b.activity).color, 1);
   } else {
-    // 계획이 안쪽에 옅게 깔리고, 실행이 바깥 링으로 겹쳐진다
+    // 계획이 바깥쪽에 옅게 깔리고, 실행이 안쪽 진한 띠로 겹쳐진다
     for (const b of state.plan) s += segShape(b, 0, R_OUT, act(b.activity).color, 0.42);
-    for (const b of blocks) s += segShape(b, R_RING_IN, R_OUT, act(b.activity).color, 1);
-    s += `<circle cx="${CX}" cy="${CY}" r="${R_RING_IN}" fill="none" stroke="var(--card)" stroke-width="2"/>`;
+    for (const b of blocks) s += segShape(b, R_HOLE, R_ACTUAL_OUT, act(b.activity).color, 1);
+    s += `<circle cx="${CX}" cy="${CY}" r="${R_ACTUAL_OUT}" fill="none" stroke="var(--card)" stroke-width="2"/>`;
   }
 
   s += spokes(false);
 
-  // 활동 이름 — 안쪽 원(계획: 가운데 구멍 / 실행: 실행 링 안쪽 경계)과
-  // 바깥 원 사이 정중앙에 놓는다. 눈금선 위에 그려서 글자가 잘리지 않게 한다.
+  // 활동 이름 — 안쪽 원(계획: 가운데 구멍 / 실행: 가운데 구멍)과
+  // 바깥 원(계획: 파이 바깥 / 실행: 진한 띠 바깥 경계) 사이 정중앙에 놓는다.
+  // 눈금선 위에 그려서 글자가 잘리지 않게 한다.
   if (side === 'plan') {
     for (const b of blocks) s += segLabel(b, R_HOLE, R_OUT);
   } else {
-    for (const b of blocks) s += segLabel(b, R_RING_IN, R_OUT);
+    for (const b of blocks) s += segLabel(b, R_HOLE, R_ACTUAL_OUT);
   }
 
   // 드래그 미리보기
   if (drag && drag.side === side && drag.range) {
     const [ds, de] = drag.range;
     const color = drag.activity === ERASER ? '#8b95a5' : act(drag.activity).color;
-    const r0 = side === 'actual' ? R_RING_IN : 0;
+    const r0 = side === 'actual' ? R_HOLE : 0;
+    const r1 = side === 'actual' ? R_ACTUAL_OUT : R_OUT;
     for (const seg of splitRange(ds, de)) {
-      s += segShape({ start: seg[0], end: seg[1] }, r0, R_OUT, color, drag.activity === ERASER ? 0.35 : 0.55);
-      const d = sector(r0, R_OUT, minToDeg(seg[0]), minToDeg(seg[1]));
+      s += segShape({ start: seg[0], end: seg[1] }, r0, r1, color, drag.activity === ERASER ? 0.35 : 0.55);
+      const d = sector(r0, r1, minToDeg(seg[0]), minToDeg(seg[1]));
       if (d) s += `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-dasharray="4 3"/>`;
     }
   }
@@ -488,7 +490,7 @@ function renderWheel(side) {
   if (side === 'plan') {
     for (const b of blocks) s += segCallout(b, R_HOLE, R_OUT);
   } else {
-    for (const b of blocks) s += segCallout(b, R_RING_IN, R_OUT);
+    for (const b of blocks) s += segCallout(b, R_HOLE, R_ACTUAL_OUT);
   }
 
   const study = groupMinutes(blocks, '공부');
@@ -1001,8 +1003,8 @@ function miniWheel(d) {
   let s = '<svg viewBox="0 0 400 400">';
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="var(--card-soft)"/>`;
   for (const b of d.plan) s += segShape(b, 0, R_OUT, act(b.activity).color, 0.42);
-  for (const b of d.actual) s += segShape(b, R_RING_IN, R_OUT, act(b.activity).color, 1);
-  s += `<circle cx="${CX}" cy="${CY}" r="${R_RING_IN}" fill="none" stroke="var(--card)" stroke-width="2.5"/>`;
+  for (const b of d.actual) s += segShape(b, 44, R_ACTUAL_OUT, act(b.activity).color, 1);
+  s += `<circle cx="${CX}" cy="${CY}" r="${R_ACTUAL_OUT}" fill="none" stroke="var(--card)" stroke-width="2.5"/>`;
   s += `<circle cx="${CX}" cy="${CY}" r="44" fill="var(--card)"/>`;
   s += `<circle cx="${CX}" cy="${CY}" r="${R_OUT}" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>`;
   return s + '</svg>';
