@@ -447,8 +447,11 @@ function addBlock(blocks, s, e, activity) {
  * 여기 있는 값은 **빈 시간대만** 메운다. 20:00~23:30 을 비워 둔 건 일부러다 —
  * 저녁 자습을 무엇으로 채울지가 매일 계획을 세우는 이유이기 때문이다.
  */
+// 새벽 수면은 평일·주말이 같아서 한 곳에 두고 양쪽이 나눠 쓴다
+const DAY_SLEEP = [0, 420, 'sleep'];   // 0:00~7:00
+
 const DAY_DEFAULT_TEMPLATE = [
-  [0, 420, 'sleep'],         // 0:00~7:00   수면
+  DAY_SLEEP,                 // 0:00~7:00   수면
   [420, 450, 'wake'],        // 7:00~7:30   기상 및 샤워
   [450, 500, 'selfstudy'],   // 7:30~8:20   아침공부
   [500, 530, 'meal'],        // 8:20~8:50   아침식사
@@ -478,7 +481,13 @@ function schedTextToActivity(text) {
   const t = (text || '').trim();
   if (!t) return null;
   for (const [re, id] of SCHED_TEXT_TO_ACTIVITY) if (re.test(t)) return id;
-  return null;
+  // 규칙에 없으면 활동 이름이 글자 안에 있는지 본다 — 시간표에 직접 적은
+  // "수학 학원" 같은 칸도 수학으로 넘어온다. 한 글자짜리 이름은 아무 데나
+  // 걸리니 두 글자 이상만, 그중 가장 긴 이름을 고른다.
+  const hit = (state.activities || [])
+    .filter((a) => a.name && a.name.length >= 2 && t.includes(a.name))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  return hit ? hit.id : null;
 }
 
 /** [s,e) 중 아직 아무 블록도 없는 구간에만 activity 를 넣는다. */
@@ -501,8 +510,8 @@ function fillFree(blocks, s, e, activity) {
  * 1) 그 주 주간 일정표에 적힌 그 요일 칸을 먼저 옮겨 온다(이쪽이 우선).
  * 2) 평일이면 남은 빈 시간을 위 뼈대로 메운다.
  *
- * 토·일은 학교 일과가 없으니 뼈대를 쓰지 않는다 — 주간 일정표에 적어 둔 게
- * 있으면 그것만 들어오고, 없으면 빈 계획으로 시작한다.
+ * 토·일은 학교 일과가 없으니 뼈대 전체를 쓰지 않는다. 다만 새벽 수면은
+ * 요일과 상관없이 자는 시간이라 주말에도 넣는다.
  */
 function buildDefaultDayPlan(dateStr, week) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -516,9 +525,8 @@ function buildDefaultDayPlan(dateStr, week) {
     }
   }
 
-  if (SCHED_WEEKDAYS.includes(dow)) {
-    for (const [s, e, id] of DAY_DEFAULT_TEMPLATE) blocks = fillFree(blocks, s, e, id);
-  }
+  const fill = SCHED_WEEKDAYS.includes(dow) ? DAY_DEFAULT_TEMPLATE : [DAY_SLEEP];
+  for (const [s, e, id] of fill) blocks = fillFree(blocks, s, e, id);
   return normalize(blocks);
 }
 
