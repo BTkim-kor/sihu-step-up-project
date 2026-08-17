@@ -646,6 +646,7 @@ function renderDayPreview() {
     const cat = b.label ? (schedCategory(b.label) || '') : 'class';
     const current = nowMin >= b.start && nowMin < b.end;
     return `<div class="dp-row${current ? ' is-now' : ''}"${cat ? ` data-cat="${cat}"` : ''}>
+      <span class="dp-dot"></span>
       <span class="dp-time">${minToStr(b.start)}</span>
       <span class="dp-name">${esc(blockLabel(b))}</span>
     </div>`;
