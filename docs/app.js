@@ -741,8 +741,25 @@ function pickTextColor(hex) {
  */
 /** 가로 또는 반지름 방향 세로로 원 안에 들어가는 이름표. 너무 좁으면 아무것도 안 그린다(콜아웃은 segCallout 몫). */
 function segLabel(b, r0, r1) {
+  // 드래그로 옮기는 중인 라벨은 이 자리 대신 dragLabelPreview() 가 그린다
+  if (labelDrag && labelDrag.b === b) return '';
+
+  // 사용자가 직접 옮긴 자리가 있으면 그걸 그대로 쓴다. 원 밖으로 옮긴 것은
+  // customCalloutLayer() 몫이라 여기서는 그리지 않는다.
+  if (b.labelPos) {
+    if (b.labelPos.outside) return '';
+    const a = act(b.activity);
+    const fill = pickTextColor(a.color);
+    const { x, y } = b.labelPos;
+    return `<text class="seg-label" data-activity="${esc(b.activity)}" data-start="${b.start}" text-anchor="middle"` +
+           ` dominant-baseline="central" fill="${fill}" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(blockLabel(b))}</text>`;
+  }
+
   const dur = b.end - b.start;
   if (dur < MIN_LABEL_MIN_VERT) return '';
+  // 이름을 나중에 길게 고쳐서 칸을 넘치면, 매번 다시 판단해 자동으로 원 밖
+  // 콜아웃으로 넘긴다(자리를 직접 옮긴 라벨은 위에서 이미 처리하고 지나갔다).
+  if (!labelFitsInline(b, r0, r1)) return '';
 
   const mid = (b.start + b.end) / 2;
   const midDeg = minToDeg(mid);
@@ -785,11 +802,38 @@ function segLabel(b, r0, r1) {
  * segLabel과 달리 renderWheel에서 별도로, 더 나중에 호출한다.
  */
 /** 한글은 한 칸, 영문·숫자·기호는 그보다 좁다 — 글자 수가 아니라 폭으로 재야 맞다. */
-function charW(ch) {
-  return /[ᄀ-ᇿ㄰-㆏가-힣一-鿿぀-ヿ]/.test(ch)
-    ? CALLOUT_FONT : CALLOUT_FONT * 0.56;
+function charWAt(ch, fontSize) {
+  return /[ᄀ-ᇿ㄰-㆏가-힣一-鿿぀-ヿ]/.test(ch) ? fontSize : fontSize * 0.56;
 }
-const textW = (s) => Array.from(s).reduce((w, c) => w + charW(c), 0);
+const textWAt = (s, fontSize) => Array.from(s).reduce((w, c) => w + charWAt(c, fontSize), 0);
+const charW = (ch) => charWAt(ch, CALLOUT_FONT);
+const textW = (s) => textWAt(s, CALLOUT_FONT);
+
+// .seg-label 의 font-size(style.css 와 맞춘다). 볼드체라 같은 글자라도 콜아웃
+// 글자보다 조금 더 넓게 잡는다.
+const INLINE_LABEL_FONT = 10.5;
+
+/**
+ * 이 블록의 이름이 원 안(가로 또는 반지름 방향 세로)에 들어가는지 폭으로
+ * 가늠한다. 못 들어가면 `segLabel()` 이 포기하고, 그 블록은 `calloutLayer()`
+ * 가 원 밖 이름표로 자동으로 옮겨 그린다 — 이름을 나중에 길게 고쳐도 매번
+ * 다시 판단하므로, 짧게 되돌리면 다시 안으로 돌아온다.
+ */
+function labelFitsInline(b, r0, r1) {
+  const dur = b.end - b.start;
+  if (dur < MIN_LABEL_MIN_VERT) return false;
+  const text = blockLabel(b);
+  if (dur >= MIN_LABEL_MIN) {
+    const spanDeg = Math.min(minToDeg(dur), 180);
+    const midR = (r0 + r1) / 2;
+    const chordW = 2 * midR * Math.sin(((spanDeg / 2) * Math.PI) / 180);
+    return textWAt(text, INLINE_LABEL_FONT) * 1.08 <= chordW * 0.82;
+  }
+  // 세로 쌓기 — 한 글자당 12px(radiusStep, 아래 segLabel 과 맞춘다)를 반지름
+  // 방향 여유와 비교한다.
+  const avail = (r1 - r0) * 0.86;
+  return Array.from(text).length * 12 <= avail;
+}
 
 /**
  * 이름을 남은 폭에 맞춰 접는다. 띄어쓰기에서 먼저 끊고, 한 낱말이 그래도
@@ -838,11 +882,15 @@ function calloutLines(text) {
  * 아래로 넘치면 다시 위로 되민다. 점선은 원에서 조금 나오다가 가로로 꺾여
  * 그 자리로 이어진다.
  */
-function calloutLayer(blocks) {
+function calloutLayer(blocks, r0, r1) {
   const items = [];
   for (const b of blocks) {
+    if (labelDrag && labelDrag.b === b) continue;   // 드래그 미리보기가 대신 그린다
+    if (b.labelPos) continue;                       // 직접 옮긴 건 segLabel/customCalloutLayer 몫
     const dur = b.end - b.start;
-    if (dur <= 0 || dur >= MIN_LABEL_MIN_VERT) continue;
+    // 짧아서 원래 못 들어가는 블록뿐 아니라, 이름을 길게 고쳐서 칸을 넘친
+    // 블록도 여기로 넘어온다(labelFitsInline 이 매번 다시 판단한다).
+    if (dur <= 0 || labelFitsInline(b, r0, r1)) continue;
     const deg = minToDeg((b.start + b.end) / 2);
     const lines = calloutLines(blockLabel(b));
     const [ax, ay] = polar(R_CALLOUT_START, deg);
@@ -895,6 +943,52 @@ function calloutLayer(blocks) {
   return s;
 }
 
+/**
+ * 사용자가 원 밖으로 직접 끌어다 놓은 이름표. 자동 콜아웃(calloutLayer)과
+ * 달리 자리를 미리 정해 겹침을 피해주지 않는다 — 사용자가 직접 고른 자리를
+ * 그대로 존중한다. 점은 그 블록의 원래(자동) 위치에 찍어, 어느 블록인지는
+ * 여전히 한눈에 알 수 있게 한다.
+ */
+function customCalloutLayer(blocks) {
+  let s = '';
+  for (const b of blocks) {
+    if (!b.labelPos || !b.labelPos.outside) continue;
+    if (labelDrag && labelDrag.b === b) continue;   // 드래그 미리보기가 대신 그린다
+    const a = act(b.activity);
+    const deg = minToDeg((b.start + b.end) / 2);
+    const [ax, ay] = polar(R_CALLOUT_START, deg);
+    const { x, y } = b.labelPos;
+    s += `<polyline class="seg-callout-line" fill="none" stroke="${a.color}" points="${ax.toFixed(1)},${ay.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
+    s += `<circle class="seg-callout-dot" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2" fill="${a.color}"/>`;
+    const lines = calloutLines(blockLabel(b));
+    const y0 = y - ((lines.length - 1) * CALLOUT_LINE_H) / 2;
+    const tspans = lines.map((ln, i) =>
+      `<tspan x="${x.toFixed(1)}" y="${(y0 + i * CALLOUT_LINE_H).toFixed(1)}">${esc(ln)}</tspan>`).join('');
+    s += `<text class="seg-label seg-label-callout" data-activity="${esc(b.activity)}"` +
+         ` data-start="${b.start}" text-anchor="middle"` +
+         ` dominant-baseline="central">${tspans}<title>${esc(blockLabel(b))}</title></text>`;
+  }
+  return s;
+}
+
+/** 라벨을 드래그하는 동안 손가락(커서)을 따라다니는 미리보기. 원 밖으로
+ *  나간 순간부터는 원래 자리와 점선으로 이어 보여준다. */
+function dragLabelPreview() {
+  if (!labelDrag || !labelDrag.moved) return '';
+  const { b, x, y, outside } = labelDrag;
+  let s = '';
+  if (outside) {
+    const a = act(b.activity);
+    const deg = minToDeg((b.start + b.end) / 2);
+    const [ax, ay] = polar(R_CALLOUT_START, deg);
+    s += `<polyline class="seg-label-drag-line" fill="none" stroke="${a.color}" points="${ax.toFixed(1)},${ay.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
+    s += `<circle class="seg-callout-dot" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="2" fill="${a.color}"/>`;
+  }
+  s += `<text class="seg-label-dragging" text-anchor="middle" dominant-baseline="central"` +
+       ` x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(blockLabel(b))}</text>`;
+  return s;
+}
+
 /* --------------------------------------------------------------- render */
 
 function wheelChrome() {
@@ -937,6 +1031,7 @@ function nowMarker() {
 }
 
 let drag = null; // {side, startMin, acc, prevAng, activity}
+let labelDrag = null; // {side, b, startClientX, startClientY, moved, pointerId, x, y, outside}
 
 /**
  * 계획·실행 각각의 편집 모드. 기본은 읽기 모드다.
@@ -1022,7 +1117,9 @@ function renderWheel(side) {
 
   // 콜아웃(점선 이름표)은 시간 눈금 숫자보다 바깥에 있으므로, 눈금을 그린
   // 뒤에 그려야 눈금 숫자에 가리지 않는다.
-  s += calloutLayer(blocks);
+  s += calloutLayer(blocks, R_HOLE, side === 'plan' ? R_OUT : R_ACTUAL_OUT);
+  s += customCalloutLayer(blocks);
+  if (labelDrag && labelDrag.side === side) s += dragLabelPreview();
 
   const study = groupMinutes(blocks, '공부');
   s += `<circle cx="${CX}" cy="${CY}" r="${R_HOLE}" fill="var(--card)" stroke="var(--line)" stroke-width="1"/>`;
@@ -1062,7 +1159,7 @@ function pointOf(svg, ev) {
   const dx = x - CX, dy = y - CY;
   let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
   if (deg < 0) deg += 360;
-  return { deg, dist: Math.hypot(dx, dy) };
+  return { x, y, deg, dist: Math.hypot(dx, dy) };
 }
 
 function attachWheel(side) {
@@ -1071,7 +1168,7 @@ function attachWheel(side) {
 
   svg.addEventListener('pointerdown', (ev) => {
     if (!editMode[side]) return;                 // 읽기 모드에서는 그려지지 않는다
-    if (ev.target.closest('.seg-label')) return; // 이름 클릭은 편집용 — 칠하기 시작하지 않는다
+    if (ev.target.closest('.seg-label')) return; // 이름은 아래 라벨 드래그 핸들러 몫 — 칠하기 시작하지 않는다
     const p = pointOf(svg, ev);
     if (p.dist > R_OUT + 14 || p.dist < 14) return;
     const activity = state.sel[side];
@@ -1081,18 +1178,8 @@ function attachWheel(side) {
     ev.preventDefault();
   });
 
-  svg.addEventListener('click', (ev) => {
-    if (!editMode[side]) return;
-    const label = ev.target.closest('.seg-label');
-    if (!label) return;
-    // 이름표가 붙은 블록은 **그 블록 이름만** 고친다. 눈에 보이는 걸 눌렀는데
-    // 다른 날 기록까지 바뀌면 놀란다 — 색은 팔레트의 ⚙ 관리에서 고친다.
-    const b = state[side].find((x) => x.start === Number(label.dataset.start));
-    if (b && (b.label || '').trim()) openBlockLabelEditor(side, b.start);
-    else openActivityEditor(label.dataset.activity);
-  });
-
   svg.addEventListener('pointermove', (ev) => {
+    if (labelDrag) { tip.classList.remove('on'); return; }  // 라벨을 옮기는 중엔 시간 안내를 띄우지 않는다
     if (!editMode[side] && !drag) return;   // 읽기 모드에선 시각 안내도 띄우지 않는다
     const p = pointOf(svg, ev);
 
@@ -1138,6 +1225,98 @@ function attachWheel(side) {
   svg.addEventListener('pointerup', finish);
   svg.addEventListener('pointercancel', finish);
   svg.addEventListener('pointerleave', () => { if (!drag) $('tooltip').classList.remove('on'); });
+
+  /* --------------------------------------------------- 라벨 옮기기 */
+  // 이름을 누른 채로 끌면 자리를 옮긴다. 누른 자리에서 몇 px 이상 움직여야
+  // "드래그"로 본다 — 살짝 떨었다 놓는 것까지 옮기기로 치면 편집창(클릭)이
+  // 거의 안 열린다.
+  const MOVE_PX = 6;
+  let suppressNextLabelClick = false;   // 방금 드래그로 옮겼으면 뒤이은 click 에서 편집창을 열지 않는다
+  let labelClickTimer = null;           // 더블클릭인지 가늠하려고 단일 클릭을 살짝 미룬다
+
+  svg.addEventListener('pointerdown', (ev) => {
+    if (!editMode[side]) return;
+    const label = ev.target.closest('.seg-label');
+    if (!label) return;
+    const b = state[side].find((x) => x.start === Number(label.dataset.start));
+    if (!b) return;
+    labelDrag = { side, b, startClientX: ev.clientX, startClientY: ev.clientY, moved: false, pointerId: ev.pointerId, x: 0, y: 0, outside: false };
+    try { svg.setPointerCapture(ev.pointerId); } catch (_) { /* noop */ }
+  });
+
+  svg.addEventListener('pointermove', (ev) => {
+    if (!labelDrag || labelDrag.side !== side || ev.pointerId !== labelDrag.pointerId) return;
+    if (!labelDrag.moved) {
+      const moved = Math.hypot(ev.clientX - labelDrag.startClientX, ev.clientY - labelDrag.startClientY) >= MOVE_PX;
+      if (!moved) return;
+      labelDrag.moved = true;
+    }
+    ev.preventDefault();
+    const p = pointOf(svg, ev);
+    const outside = p.dist > R_OUT + 4;
+    let x, y;
+    if (outside) {
+      x = p.x; y = p.y;
+    } else {
+      // 원 안에서는 구멍(가운데 글자)과 겹치지 않도록 반지름을 그 사이로 묶는다
+      const clampedDist = Math.min(Math.max(p.dist, R_HOLE + 12), R_OUT - 4);
+      [x, y] = polar(clampedDist, p.deg);
+    }
+    // viewBox 밖으로 나가면 잘려서 안 보이므로, 카드 안쪽에 머물게 한다
+    labelDrag.x = Math.min(Math.max(x, 8), VB_W - 8);
+    labelDrag.y = Math.min(Math.max(y, 8), VB_H - 8);
+    labelDrag.outside = outside;
+    renderWheel(side);
+  });
+
+  const finishLabelDrag = (ev) => {
+    if (!labelDrag || labelDrag.side !== side || ev.pointerId !== labelDrag.pointerId) return;
+    const d = labelDrag;
+    labelDrag = null;
+    try { svg.releasePointerCapture(ev.pointerId); } catch (_) { /* noop */ }
+    // 살짝 눌렀다 뗀 것뿐이면 다시 그리지 않는다 — 여기서 다시 그리면 뒤이어
+    // 오는 click 이 노리던 라벨 노드가 통째로 새 노드로 바뀌어서, 그 click 이
+    // 엉뚱한 곳으로 가거나 아예 안 잡힌다(실제로 겪은 문제).
+    if (!d.moved) return;
+    suppressNextLabelClick = true;
+    pushUndo();
+    d.b.labelPos = { x: d.x, y: d.y, outside: d.outside };
+    changed();
+  };
+  svg.addEventListener('pointerup', finishLabelDrag);
+  svg.addEventListener('pointercancel', finishLabelDrag);
+
+  svg.addEventListener('click', (ev) => {
+    if (!editMode[side]) return;
+    const label = ev.target.closest('.seg-label');
+    if (!label) return;
+    if (suppressNextLabelClick) { suppressNextLabelClick = false; return; }
+    if (labelClickTimer) {   // 두 번째 클릭 — dblclick 이 자리를 되돌릴 것이므로 여기선 아무것도 안 한다
+      clearTimeout(labelClickTimer);
+      labelClickTimer = null;
+      return;
+    }
+    labelClickTimer = setTimeout(() => {
+      labelClickTimer = null;
+      // 이름표가 붙은 블록은 **그 블록 이름만** 고친다. 눈에 보이는 걸 눌렀는데
+      // 다른 날 기록까지 바뀌면 놀란다 — 색은 팔레트의 ⚙ 관리에서 고친다.
+      const b = state[side].find((x) => x.start === Number(label.dataset.start));
+      if (b && (b.label || '').trim()) openBlockLabelEditor(side, b.start);
+      else openActivityEditor(label.dataset.activity);
+    }, 260);
+  });
+
+  svg.addEventListener('dblclick', (ev) => {
+    if (!editMode[side]) return;
+    const label = ev.target.closest('.seg-label');
+    if (!label) return;
+    ev.preventDefault();
+    const b = state[side].find((x) => x.start === Number(label.dataset.start));
+    if (!b || !b.labelPos) return;
+    pushUndo();
+    delete b.labelPos;
+    changed();
+  });
 }
 
 function showTip(tip, ev, text) {
