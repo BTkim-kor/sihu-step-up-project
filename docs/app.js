@@ -23,8 +23,8 @@ const R_TICK = 166, R_TICK_MAJOR = 171, R_LABEL = 182;
 const R_CALLOUT_START = R_OUT + 3;   // 점선이 시작하는 지점(파이 가장자리 바로 밖)
 const R_CALLOUT_BEND = R_OUT + 16;   // 여기서 가로로 꺾는다
 const R_CALLOUT_KNEE = 190;          // 세로로 줄 맞춰 서는 지점(시간 눈금 숫자 밖)
-const CALLOUT_FONT = 8.4;            // 콜아웃 글자 크기(style.css 와 맞춰 둔다)
-const CALLOUT_LINE_H = 9.6;          // 한 줄 높이
+const CALLOUT_FONT = 9;              // 콜아웃 글자 크기(style.css 와 맞춰 둔다)
+const CALLOUT_LINE_H = 10.2;         // 한 줄 높이
 const CALLOUT_MAX_LINES = 3;
 // 이름이 들어갈 가로 폭 = 화면 끝까지 남은 자리. 이걸 넘기면 글자가 잘린다.
 const CALLOUT_MAX_W = CX - R_CALLOUT_KNEE - 6;
@@ -580,6 +580,29 @@ function fillFree(blocks, s, e, activity) {
   return out;
 }
 
+/** 날짜 → 주간 일정표 요일 문자(월=0 … 일=6). */
+function dowOf(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return SCHED_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];
+}
+
+/**
+ * 그 주 주간 일정표의 그 요일 칸을 하루 계획표 블록으로 옮긴다(채우기는 하지 않는다).
+ * `buildDefaultDayPlan()`(빈 시간 채우기)과 미리보기 패널이 함께 쓴다 — 같은
+ * 규칙으로 읽어야 "기본값 채우기"와 미리보기가 서로 다른 걸 보여주지 않는다.
+ */
+function scheduleBlocksForDay(dateStr, week) {
+  const dow = dowOf(dateStr);
+  let blocks = [];
+  if (week && week.cells) {
+    for (const slot of slotsOf(week)) {
+      const hit = schedTextToBlock(week.cells[`${dow}_${slot.id}`]);
+      if (hit) blocks = addBlock(blocks, slot.start, slot.end, hit.id, hit.label);
+    }
+  }
+  return blocks;
+}
+
 /**
  * 한 번도 저장한 적 없는 날에 채워 넣을 계획.
  *
@@ -589,18 +612,53 @@ function fillFree(blocks, s, e, activity) {
  * 토·일은 학교 일과가 없으니 뼈대 전체를 쓰지 않는다. 다만 새벽 수면은
  * 요일과 상관없이 자는 시간이라 주말에도 넣는다.
  */
-function buildDefaultDayPlan(dateStr, week) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dow = SCHED_DAYS[(new Date(y, m - 1, d).getDay() + 6) % 7];   // 월=0 … 일=6
-  let blocks = [];
+/**
+ * 계획·실행 사이의 "오늘 시간표" 미리보기 패널.
+ *
+ * 계획을 짤 때 그 날 주간 일정표를 옆에서 바로 볼 수 있으면 탭을 오가지
+ * 않아도 된다. 읽기 전용이고, 카테고리 색은 주간 일정표 탭과 같은 팔레트
+ * (`schedCategory()` → `--c-*`)를 그대로 써서 두 화면이 같은 언어로 보인다.
+ * `dayPreviewWeek` 는 `load()` 에서 하루 데이터와 함께 한 번만 받아 두고
+ * 재사용한다 — 계획을 고칠 때마다 다시 불러오지 않는다.
+ */
+let dayPreviewWeek = null;
 
-  if (week && week.cells) {
-    for (const slot of slotsOf(week)) {
-      const hit = schedTextToBlock(week.cells[`${dow}_${slot.id}`]);
-      if (hit) blocks = addBlock(blocks, slot.start, slot.end, hit.id, hit.label);
-    }
+function renderDayPreview() {
+  const el = $('dayPreview');
+  if (!el) return;
+
+  const blocks = scheduleBlocksForDay(state.date, dayPreviewWeek);
+  if (!dayPreviewWeek || !dayPreviewWeek.cells || !blocks.length) {
+    el.innerHTML = `<div class="dp-empty">
+      <p>이 주의 시간표가 없습니다.</p>
+      <button class="ghost sm" id="dpGotoSchedule">주간 일정표에서 만들기</button>
+    </div>`;
+    $('dpGotoSchedule').onclick = () => switchTab('schedule');
+    return;
   }
 
+  const isToday = state.date === todayStr();
+  const nowMin = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
+  const [y, m, d] = state.date.split('-').map(Number);
+
+  const rows = blocks.map((b) => {
+    // 이름표가 없는 건 교시들이 뭉친 학교일정뿐 — 나머지는 원문 그대로다
+    const cat = b.label ? (schedCategory(b.label) || '') : 'class';
+    const current = nowMin >= b.start && nowMin < b.end;
+    return `<div class="dp-row${current ? ' is-now' : ''}"${cat ? ` data-cat="${cat}"` : ''}>
+      <span class="dp-time">${minToStr(b.start)}</span>
+      <span class="dp-name">${esc(blockLabel(b))}</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="dp-head">${m}/${d} (${DOW[new Date(y, m - 1, d).getDay()]})</div>
+    <div class="dp-rows">${rows}</div>`;
+}
+
+function buildDefaultDayPlan(dateStr, week) {
+  const dow = dowOf(dateStr);
+  let blocks = scheduleBlocksForDay(dateStr, week);
   const fill = SCHED_WEEKDAYS.includes(dow) ? DAY_DEFAULT_TEMPLATE : [DAY_SLEEP];
   for (const [s, e, id] of fill) blocks = fillFree(blocks, s, e, id);
   return normalize(blocks);
@@ -820,10 +878,12 @@ function calloutLayer(blocks) {
     const color = act(it.b.activity).color;
     const kneeX = it.right ? CX + R_CALLOUT_KNEE : CX - R_CALLOUT_KNEE;
     const textX = it.right ? kneeX + 5 : kneeX - 5;
-    // 원 → 살짝 바깥 → 가로로 꺾어 이름줄까지
+    // 원 → 살짝 바깥 → 가로로 꺾어 이름줄까지. 얇은 실선 + 시작점의 작은 점이
+    // "표시"보다는 "안내선"처럼 보이게 한다(예전엔 굵은 점선 + 볼드체였다).
     s += `<polyline class="seg-callout-line" fill="none" stroke="${color}" points="` +
          `${it.ax.toFixed(1)},${it.ay.toFixed(1)} ${it.bx.toFixed(1)},${it.by.toFixed(1)} ` +
          `${kneeX},${it.y.toFixed(1)}"/>`;
+    s += `<circle class="seg-callout-dot" cx="${it.ax.toFixed(1)}" cy="${it.ay.toFixed(1)}" r="2" fill="${color}"/>`;
     const y0 = it.y - ((it.lines.length - 1) * CALLOUT_LINE_H) / 2;
     const tspans = it.lines.map((ln, i) =>
       `<tspan x="${textX}" y="${(y0 + i * CALLOUT_LINE_H).toFixed(1)}">${esc(ln)}</tspan>`).join('');
@@ -2496,12 +2556,20 @@ function urgentTaskCount() {
   return board.tasks.filter((t) => !t.done && taskDays(t) <= 3).length;
 }
 
+/**
+ * 탭 배지 — 위험(기한 지남·D-3 이내)이 있으면 빨간 숫자, 없으면 초록 체크.
+ * "할 일이 없다"가 아니라 "위험이 없다"는 뜻이라, D-19짜리만 남아 있어도
+ * 초록으로 뜬다.
+ */
 function refreshTaskBadge() {
   const el = $('taskBadge');
   if (!el) return;
   const n = urgentTaskCount();
-  el.textContent = n;
-  el.hidden = !n;
+  el.hidden = false;
+  el.classList.toggle('is-risk', n > 0);
+  el.classList.toggle('is-safe', n === 0);
+  el.textContent = n > 0 ? String(n) : '✓';
+  el.setAttribute('aria-label', n > 0 ? `위험한 수행 ${n}건` : '위험한 수행 없음');
 }
 
 function renderTasks() {
@@ -2933,6 +3001,7 @@ function renderAll() {
   $('planStat').textContent = statText(state.plan);
   $('actualStat').textContent = statText(state.actual);
   renderAnalysis();
+  renderDayPreview();
 }
 
 function statText(arr) {
@@ -2986,9 +3055,10 @@ async function load(dateStr) {
   $('dowLabel').textContent = '(' + DOW[new Date(y, m - 1, d).getDay()] + ')';
   setSaveState('불러오는 중…', '');
 
-  const [day, recent] = await Promise.all([
+  const [day, recent, week] = await Promise.all([
     apiGetDay(dateStr),
     apiGetRecent(dateStr, 7),
+    apiGetScheduleWeek(weekStart(dateStr)).catch(() => null),
   ]);
 
   state.plan = normalize(day.plan || []);
@@ -2996,13 +3066,15 @@ async function load(dateStr) {
   state.memo = day.memo || '';
   state.recent = Array.isArray(recent) ? recent : [];
   $('memo').value = state.memo;
+  // 미리보기 패널과, 다시 그릴 때 재사용할 되돌리기(↻ 기본값 채우기)가
+  // 매번 다시 불러오지 않도록 이 날짜의 주간 일정을 기억해 둔다.
+  dayPreviewWeek = week;
 
   // 한 번도 저장한 적 없는 날은 빈 원 대신 기본 계획을 깔아 준다.
   // 아직 저장하지는 않는다 — 날짜를 넘겨보기만 해도 문서가 생기면 곤란하고,
   // 시후가 한 칸이라도 고치는 순간 평소대로 자동 저장된다.
   let seeded = false;
   if (!day.updated_at && !state.plan.length) {
-    const week = await apiGetScheduleWeek(weekStart(dateStr)).catch(() => null);
     const base = buildDefaultDayPlan(dateStr, week);
     if (base.length) { state.plan = base; seeded = true; }
   }
@@ -3111,10 +3183,14 @@ async function init() {
     // 이미 저장된 날은 buildDefaultDayPlan 이 자동으로 건드리지 않으므로,
     // "요즘 주간 일정표 기준으로 다시 보고 싶다"는 요청은 이 버튼으로만 된다.
     if (!confirm('지금 계획을 지우고 주간 일정표 기준 기본값으로 다시 채울까요?\n되돌리기(⌘Z)로 취소할 수 있습니다.')) return;
+    // 새로 받아 온다 — 이 버튼을 누르는 이유 자체가 "최신 주간 일정표를 반영해줘"라서,
+    // 로드 시점에 캐시해 둔 것 말고 지금 저장된 값을 다시 확인해야 한다.
     const week = await apiGetScheduleWeek(weekStart(state.date)).catch(() => null);
+    dayPreviewWeek = week;
     pushUndo();
     state.plan = buildDefaultDayPlan(state.date, week);
     changed();
+    renderDayPreview();
   };
 
   $('copyPlanBtn').onclick = () => {
