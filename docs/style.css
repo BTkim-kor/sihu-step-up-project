@@ -1372,7 +1372,10 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
   font-size: 12px;
 }
 .pg-den { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
-.pg-sub2 { grid-column: 2 / -1; font-size: 11px; color: var(--ink-3); margin-top: -4px; }
+.pg-sub2 { grid-column: 2 / -1; font-size: 11px; color: var(--ink-3); margin-top: -4px; display: flex; gap: 8px; }
+/* 언제 마지막으로 기록했는지 — 오른쪽에 옅게, 방금 기록한 건지 며칠 됐는지가
+   한눈에 보여야 "기록했는지 안 했는지 모르겠다"는 답답함이 없어진다 */
+.pg-updated { margin-left: auto; color: var(--ink-3); opacity: .8; white-space: nowrap; }
 
 .pg-chip {
   font-size: 11px;

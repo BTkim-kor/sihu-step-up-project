@@ -349,8 +349,12 @@ async function apiListProgressItems() {
 }
 
 async function apiSaveProgressItem(item) {
-  await db.doc(`families/${FID}/progressItems/${item.id}`)
-    .set({ ...item, updated_at: new Date().toISOString() });
+  // 저장 직전에 item 을 직접 고쳐 둔다(스프레드로 사본만 보내면 화면은 여전히
+  // "언제 저장됐는지" 를 모른다). 함수는 첫 await 전까지 동기로 실행되므로,
+  // 호출 직후 이어지는 renderProgress() 가 이미 새 시각을 보고 그린다 —
+  // 실제 네트워크 저장이 끝나기 전에도 "방금 기록했다"는 게 화면에 바로 보인다.
+  item.updated_at = new Date().toISOString();
+  await db.doc(`families/${FID}/progressItems/${item.id}`).set(item);
 }
 
 async function apiDeleteProgressItem(id) {
@@ -824,10 +828,12 @@ function labelFitsInline(b, r0, r1) {
   if (dur < MIN_LABEL_MIN_VERT) return false;
   const text = blockLabel(b);
   if (dur >= MIN_LABEL_MIN) {
+    // 쐐기의 가운데가 아니라 **바깥쪽(가장 넓은 지점)** 현을 기준으로 잰다.
+    // 가운데 반지름 기준으로 재면 "점심시간"·"저녁시간"처럼 평범한 이름도
+    // 자꾸 밖으로 밀려났다 — 실제로는 글자가 바깥쪽까지 걸쳐도 자연스럽다.
     const spanDeg = Math.min(minToDeg(dur), 180);
-    const midR = (r0 + r1) / 2;
-    const chordW = 2 * midR * Math.sin(((spanDeg / 2) * Math.PI) / 180);
-    return textWAt(text, INLINE_LABEL_FONT) * 1.08 <= chordW * 0.82;
+    const chordW = 2 * r1 * Math.sin(((spanDeg / 2) * Math.PI) / 180);
+    return textWAt(text, INLINE_LABEL_FONT) * 1.05 <= chordW * 0.94;
   }
   // 세로 쌓기 — 한 글자당 12px(radiusStep, 아래 segLabel 과 맞춘다)를 반지름
   // 방향 여유와 비교한다.
@@ -2681,10 +2687,20 @@ function renderProgress() {
 
 const progressFolded = new Set();
 
+/** "오늘 14:32" 또는 "8/19 14:32" — 언제 마지막으로 진도를 기록했는지. */
+function fmtUpdatedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const hhmm = d.toTimeString().slice(0, 5);
+  return todayStr(d) === todayStr() ? `오늘 ${hhmm}` : `${d.getMonth() + 1}/${d.getDate()} ${hhmm}`;
+}
+
 function progressRowHtml(it, s) {
   const p = itemPace(it);
   const sub = p.done ? `${p.total}${esc(it.unit)} 완료`
     : `${p.perDay ? `하루 ${p.perDay}${esc(it.unit)}` : ''}${it.dueDate ? ` · 목표 ${it.dueDate.slice(5).replace('-', '/')}` : ''}`;
+  const updated = fmtUpdatedAt(it.updated_at);
   return `<div class="pg-row${p.done ? ' is-done' : ''}">
     <span class="pg-kind">${esc(it.kind)}</span>
     <span class="pg-name" data-edit-item="${esc(it.id)}" title="눌러서 목표 고치기">${esc(it.name)}</span>
@@ -2695,7 +2711,7 @@ function progressRowHtml(it, s) {
     </span>
     ${itemStatusChip(p)}
     <button class="row-del" data-del-item="${esc(it.id)}" title="이 항목 지우기" aria-label="${esc(it.name)} 지우기">✕</button>
-    <span class="pg-sub2">${sub}</span>
+    <span class="pg-sub2">${sub}${updated ? `<span class="pg-updated">기록 ${updated}</span>` : ''}</span>
   </div>`;
 }
 
